@@ -14,10 +14,13 @@ FROM nginx:alpine AS runtime
 WORKDIR /usr/share/nginx/html
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Provide a default nginx config that serves static files
-COPY <<EOF /etc/nginx/conf.d/default.conf
+# Install envsubst for dynamic config generation
+RUN apk add --no-cache gettext
+
+# Template nginx config that respects the PORT environment variable
+COPY <<'EOF' /etc/nginx/conf.d/default.conf.template
 server {
-  listen       80;
+  listen       ${PORT};
   server_name  _;
 
   root   /usr/share/nginx/html;
@@ -29,8 +32,10 @@ server {
 }
 EOF
 
-EXPOSE 80
+ENV PORT=8080
+EXPOSE 8080
 
-CMD ["nginx", "-g", "daemon off;"]
+# Render config from template and start nginx
+CMD ["sh", "-c", "envsubst '$PORT' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
 
 
