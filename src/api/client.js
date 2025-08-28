@@ -1,7 +1,10 @@
 const isDev = !!import.meta.env.DEV
 // En desarrollo, forzamos rutas relativas para usar el proxy de Vite.
 // En producción, permitimos configurar API_BASE vía VITE_API_BASE.
-const API_BASE = (!isDev ? (import.meta.env.VITE_API_BASE || '') : '').replace(/\/$/, '')
+const API_BASE = (!isDev
+  ? (import.meta.env.VITE_API_BASE || 'https://curvasdesembolsoserver-production.up.railway.app')
+  : ''
+).replace(/\/$/, '')
 
 async function request(path, options = {}) {
   const url = API_BASE ? `${API_BASE}${path}` : path
