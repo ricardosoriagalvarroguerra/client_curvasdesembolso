@@ -4,10 +4,9 @@ import * as d3 from 'd3'
 import { MACROSECTOR_LABELS, MODALITY_LABELS } from '../labels'
 import { getPredictionBands } from '../api/client'
 
-export default function ProjectPopover({ open, onClose, data }) {
+export default function ProjectPopover({ open, onClose, data, showBands, onToggleBands }) {
   const ref = useRef(null)
   const tooltipRef = useRef(null)
-  const [showBands, setShowBands] = useState(true)
   const [method, setMethod] = useState('bootstrap')
   const [level, setLevel] = useState('90')
 
@@ -15,10 +14,10 @@ export default function ProjectPopover({ open, onClose, data }) {
   useEffect(() => {
     const qs = new URLSearchParams(window.location.search)
     const pb = qs.get('pb')
-    setShowBands(pb === null ? true : pb === '1')
+    onToggleBands(pb === null ? true : pb === '1')
     setMethod(qs.get('pb_m') || 'bootstrap')
     setLevel(qs.get('pb_l') || '90')
-  }, [])
+  }, [onToggleBands])
 
   // Persist params for deep linking
   useEffect(() => {
@@ -169,7 +168,7 @@ export default function ProjectPopover({ open, onClose, data }) {
         </div>
         <div className="row" style={{ marginTop:10, gap:8, alignItems:'center' }}>
           <label className="row" style={{ gap:4 }}>
-            <input type="checkbox" checked={showBands} onChange={e => setShowBands(e.target.checked)} /> Bandas de predicción
+            <input type="checkbox" checked={showBands} onChange={e => onToggleBands?.(e.target.checked)} /> Bandas de predicción
           </label>
           {showBands && (
             <>
