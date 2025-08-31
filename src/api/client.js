@@ -41,6 +41,12 @@ export function getProjectTimeseries(iatiidentifier, params = {}) {
   return request(`/api/projects/${encodeURIComponent(iatiidentifier)}/timeseries?${qs}`)
 }
 
+export function getPredictionBands(projectId, params = {}) {
+  const { method = 'bootstrap', level = 90, smooth = true } = params
+  const qs = new URLSearchParams({ method, level, smooth })
+  return request(`/api/curves/${encodeURIComponent(projectId)}/prediction-bands?${qs}`)
+}
+
 export function getHealth() { return request('/api/health') }
 
 
