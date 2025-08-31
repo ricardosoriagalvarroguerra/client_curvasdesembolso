@@ -4,6 +4,7 @@ import * as d3 from 'd3'
 import { postCurveFit, getProjectTimeseries } from '../api/client'
 import { MACROSECTOR_LABELS, MODALITY_LABELS } from '../labels'
 import SeriesKPIs from './SeriesKPIs.jsx'
+import ProjectPopover from './ProjectPopover.jsx'
 
 export default function CurveWorkbench({ filters, compareItems = [], showActivePoints = true, showPointCloud = false }) {
   const svgRef = useRef(null)
@@ -13,9 +14,30 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const [showScatter, setShowScatter] = useState(showActivePoints)
   const [compareResults, setCompareResults] = useState([])
   const [showMain, setShowMain] = useState(true)
-  const [bandMode, setBandMode] = useState('none') // 'none' | 'fixed' | 'byK'
   const [showResidualsPanel, setShowResidualsPanel] = useState(false)
   const [showMethodologyPanel, setShowMethodologyPanel] = useState(false)
+  const [popover, setPopover] = useState({ open: false, data: null })
+
+  async function fetchSeries(pid) {
+    const cache = tsCacheRef.current
+    if (cache.has(pid)) return cache.get(pid)
+    try {
+      const resp = await getProjectTimeseries(pid, { yearFrom: filters.yearFrom, yearTo: filters.yearTo })
+      const series = Array.isArray(resp?.series) ? resp.series.map(p => ({ k: p.k, d: p.d })) : []
+      const payload = { project: resp?.project, series }
+      cache.set(pid, payload)
+      return payload
+    } catch {
+      const payload = { project: { iatiidentifier: pid }, series: [] }
+      cache.set(pid, payload)
+      return payload
+    }
+  }
+
+  async function openProject(pid) {
+    const data = await fetchSeries(pid)
+    setPopover({ open: true, data })
+  }
 
   const stableFilters = useMemo(() => ({ ...filters }), [filters.macrosectors, filters.modalities, filters.countries, filters.mdbs, filters.ticketMin, filters.ticketMax, filters.yearFrom, filters.yearTo, filters.onlyExited])
   const { data, error } = useSWR(
@@ -128,7 +150,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-opacity', 0.9)
       .attr('stroke-width', 1)
 
-    // Only the historical curve line for main filters (optional) and variance bands
+    // Only the historical curve line for main filters
     const params = data?.params
     const line = d3.line().x(d => x(d.k)).y(d => y(d.hd))
     if (showMain && params) {
@@ -138,58 +160,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const kMaxLocal = data.kDomain?.[1] ?? 120
       for (let k = 0; k <= kMaxLocal; k++) curve.push({ k, hd: logistic3(k) })
 
-      // Variance band: fixed sigma (server bands) or by-k computed from points
-      if (bandMode === 'fixed') {
-        const bands = Array.isArray(data?.bands) ? data.bands : []
-        if (bands.length) {
-          const area = d3.area()
-            .x(d => x(d.k))
-            .y0(d => y(d.hd_dn))
-            .y1(d => y(d.hd_up))
-          g.append('path')
-            .datum(bands)
-            .attr('fill', 'var(--band-fill)')
-            .attr('fill-opacity', 0.18)
-            .attr('stroke', 'none')
-            .attr('d', area)
-        }
-      } else if (bandMode === 'byK') {
-        const pts = Array.isArray(data?.points) ? data.points : []
-        if (pts.length) {
-          // Bin by k (e.g., width 3 months) and compute std of residual y
-          const binW = Math.max(1, Math.round((data.kDomain?.[1] ?? 120) / 40))
-          const byBin = new Map()
-          for (const p of pts) {
-            const bk = Math.floor((p.k || 0) / binW) * binW
-            const arr = byBin.get(bk) || []
-            arr.push(p.y)
-            byBin.set(bk, arr)
-          }
-          const band = []
-          const z = (data?.params?.band_z != null && isFinite(data.params.band_z)) ? data.params.band_z : 1.2815515655446004
-          for (let k = 0; k <= (data.kDomain?.[1] ?? 120); k++) {
-            const bk = Math.floor(k / binW) * binW
-            const ys = byBin.get(bk) || []
-            let sd = 0
-            if (ys.length > 1) {
-              const v = d3.variance(ys) || 0
-              sd = Math.sqrt(v) * z
-            }
-            const hd = logistic3(k)
-            band.push({ k, hd_up: Math.min(1, hd + sd), hd_dn: Math.max(0, hd - sd) })
-          }
-          const area = d3.area()
-            .x(d => x(d.k))
-            .y0(d => y(d.hd_dn))
-            .y1(d => y(d.hd_up))
-          g.append('path')
-            .datum(band)
-            .attr('fill', 'var(--band-fill)')
-            .attr('fill-opacity', 0.18)
-            .attr('stroke', 'none')
-            .attr('d', area)
-        }
-      }
       g.append('path')
         .datum(curve)
         .attr('fill', 'none')
@@ -251,24 +221,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 </svg>`
     }
 
-    async function fetchSeries(pid) {
-      const cache = tsCacheRef.current
-      if (cache.has(pid)) return cache.get(pid)
-      try {
-        const resp = await getProjectTimeseries(pid, { yearFrom: filters.yearFrom, yearTo: filters.yearTo })
-        const series = Array.isArray(resp?.series) ? resp.series.map(p => ({ k: p.k, d: p.d })) : []
-        const macrosectorId = resp?.project?.macrosector_id ?? null
-        const modalityId = resp?.project?.modality_id ?? null
-        const payload = { series, macrosectorId, modalityId }
-        cache.set(pid, payload)
-        return payload
-      } catch {
-        const payload = { series: [], macrosectorId: null, modalityId: null }
-        tsCacheRef.current.set(pid, payload)
-        return payload
-      }
-    }
-
     function showPointTooltip(e, point, color) {
       hoveringPointRef.current = true
       const t = tooltipRef.current
@@ -291,9 +243,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       // Fetch and replace with sparkline (cached)
       fetchSeries(point.iatiidentifier).then(result => {
         const series = Array.isArray(result?.series) ? result.series : []
-        const macroId = result?.macrosectorId
+        const macroId = result?.project?.macrosector_id ?? null
         const macroName = macroId != null ? (MACROSECTOR_LABELS[macroId] || `${macroId}`) : '—'
-        const modId = result?.modalityId
+        const modId = result?.project?.modality_id ?? null
         const modalityName = modId != null ? (MODALITY_LABELS[modId] || `${modId}`) : '—'
         if (!series || !series.length) {
           t.innerHTML = `<div style=\"font-weight:600;margin-bottom:4px\">${point.iatiidentifier}</div>
@@ -374,6 +326,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
           .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
           .on('mouseleave', function () { clearHighlight(); hideTooltip() })
+          .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
       }
       if (showMain) {
         drawCloud(data.points, '#6b7280')
@@ -405,6 +358,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
             .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, '#2563eb'); showPointTooltip(e, d, '#2563eb') })
             .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, '#2563eb'); showPointTooltip(e, d, '#2563eb') })
             .on('mouseleave', function () { clearHighlight(); hideTooltip() })
+            .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
         }
       } else {
         compareList.forEach((cd, idx) => {
@@ -427,6 +381,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
             .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
             .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
             .on('mouseleave', function () { clearHighlight(); hideTooltip() })
+            .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
         })
       }
     }
@@ -499,7 +454,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, bandMode])
+  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud])
 
   const params = data?.params
   const kpiRows = []
@@ -563,20 +518,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowMethodologyPanel(s => !s)}>
           {showMethodologyPanel ? 'Ocultar' : 'Ver'} ficha metodológica
         </button>
-        <button
-          className={"chip" + (bandMode === 'fixed' ? ' chip--accent' : '')}
-          style={{ marginLeft: 8 }}
-          onClick={() => setBandMode(bandMode === 'fixed' ? 'none' : 'fixed')}
-        >
-          Bandas fijas
-        </button>
-        <button
-          className={"chip" + (bandMode === 'byK' ? ' chip--accent' : '')}
-          style={{ marginLeft: 8 }}
-          onClick={() => setBandMode(bandMode === 'byK' ? 'none' : 'byK')}
-        >
-          Bandas por k
-        </button>
       </div>
       <svg ref={svgRef} className="svg-wrap" role="img" aria-label="Curva de desembolsos" />
       {showResidualsPanel && (
@@ -598,6 +539,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         </div>
       )}
       <SeriesKPIs rows={kpiRows} />
+      <ProjectPopover open={popover.open} onClose={() => setPopover({ open:false, data:null })} data={popover.data} />
     </div>
   )
 }

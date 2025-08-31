@@ -7,14 +7,15 @@ import { getPredictionBands } from '../api/client'
 export default function ProjectPopover({ open, onClose, data }) {
   const ref = useRef(null)
   const tooltipRef = useRef(null)
-  const [showBands, setShowBands] = useState(false)
+  const [showBands, setShowBands] = useState(true)
   const [method, setMethod] = useState('bootstrap')
   const [level, setLevel] = useState('90')
 
   // Sync state with query params on mount
   useEffect(() => {
     const qs = new URLSearchParams(window.location.search)
-    setShowBands(qs.get('pb') === '1')
+    const pb = qs.get('pb')
+    setShowBands(pb === null ? true : pb === '1')
     setMethod(qs.get('pb_m') || 'bootstrap')
     setLevel(qs.get('pb_l') || '90')
   }, [])
