@@ -563,6 +563,20 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowMethodologyPanel(s => !s)}>
           {showMethodologyPanel ? 'Ocultar' : 'Ver'} ficha metodológica
         </button>
+        <button
+          className={"chip" + (bandMode === 'fixed' ? ' chip--accent' : '')}
+          style={{ marginLeft: 8 }}
+          onClick={() => setBandMode(bandMode === 'fixed' ? 'none' : 'fixed')}
+        >
+          Bandas fijas
+        </button>
+        <button
+          className={"chip" + (bandMode === 'byK' ? ' chip--accent' : '')}
+          style={{ marginLeft: 8 }}
+          onClick={() => setBandMode(bandMode === 'byK' ? 'none' : 'byK')}
+        >
+          Bandas por k
+        </button>
       </div>
       <svg ref={svgRef} className="svg-wrap" role="img" aria-label="Curva de desembolsos" />
       {showResidualsPanel && (
