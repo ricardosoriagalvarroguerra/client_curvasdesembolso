@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import { MACROSECTOR_LABELS, MODALITY_LABELS } from './labels'
 import FiltersPanel from './components/FiltersPanel.jsx'
 import CurveWorkbench from './components/CurveWorkbench.jsx'
@@ -18,7 +18,6 @@ export default function App() {
   const [compareItems, setCompareItems] = useState([]) // up to 7 curves
   const [showActivePoints, setShowActivePoints] = useState(true)
   const [showPointCloud, setShowPointCloud] = useState(false)
-  const [viewMode, setViewMode] = useState('cohort') // 'cohort' or 'project'
 
   function addCurrentAsCompare(filtersArg) {
     if (compareItems.length >= 7) return
@@ -101,18 +100,6 @@ export default function App() {
     <div className="app">
       <header className="header">
         <h1>Curvas de Desembolso</h1>
-        <div style={{ marginTop:8 }}>
-          <button
-            className="chip"
-            onClick={() => setViewMode('cohort')}
-            style={{ marginRight:8, background: viewMode==='cohort' ? 'var(--line-main)' : undefined }}
-          >Cohorte (histórico)</button>
-          <button
-            className="chip"
-            onClick={() => setViewMode('project')}
-            style={{ background: viewMode==='project' ? 'var(--line-main)' : undefined }}
-          >Proyecto</button>
-        </div>
       </header>
       <div className="layout">
         <aside className="sidebar">
@@ -137,7 +124,6 @@ export default function App() {
             compareItems={compareItems}
             showActivePoints={showActivePoints}
             showPointCloud={showPointCloud}
-            viewMode={viewMode}
           />
         </main>
       </div>

@@ -6,7 +6,7 @@ import { MACROSECTOR_LABELS, MODALITY_LABELS } from '../labels'
 import SeriesKPIs from './SeriesKPIs.jsx'
 import ProjectPopover from './ProjectPopover.jsx'
 
-export default function CurveWorkbench({ filters, compareItems = [], showActivePoints = true, showPointCloud = false, viewMode = 'cohort' }) {
+export default function CurveWorkbench({ filters, compareItems = [], showActivePoints = true, showPointCloud = false }) {
   const svgRef = useRef(null)
   const tooltipRef = useRef(null)
   const tsCacheRef = useRef(new Map())
@@ -17,7 +17,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const [showResidualsPanel, setShowResidualsPanel] = useState(false)
   const [showMethodologyPanel, setShowMethodologyPanel] = useState(false)
   const [popover, setPopover] = useState({ open: false, data: null })
-  const [selectedProject, setSelectedProject] = useState(null)
+  const [showBands, setShowBands] = useState(true)
 
   async function fetchSeries(pid) {
     const cache = tsCacheRef.current
@@ -37,7 +37,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
   async function openProject(pid) {
     const data = await fetchSeries(pid)
-    setSelectedProject(data)
     setPopover({ open: true, data })
   }
 
@@ -105,8 +104,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
   // Sync showScatter with prop from sidebar and view mode
   useEffect(() => {
-    setShowScatter(viewMode === 'cohort' ? false : !!showActivePoints)
-  }, [showActivePoints, viewMode])
+    setShowScatter(!!showActivePoints)
+  }, [showActivePoints])
 
   useEffect(() => {
     if (!data) return
@@ -153,7 +152,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-width', 1)
 
     // Historical quantile bands
-    const bands = Array.isArray(data?.bands) ? data.bands : []
+    const bands = showBands && Array.isArray(data?.bands) ? data.bands : []
     if (bands.length) {
       const area95 = d3.area().x(d => x(d.k)).y0(d => y(d.p2_5 ?? d.p025 ?? d.lower95 ?? d.lower)).y1(d => y(d.p97_5 ?? d.p975 ?? d.upper95 ?? d.upper))
       g.append('path')
@@ -216,16 +215,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('d', line)
     })
 
-    // Selected project curve overlay
-    if (viewMode === 'project' && selectedProject?.series?.length) {
-      const projLine = d3.line().x(d => x(d.k)).y(d => y(d.d))
-      g.append('path')
-        .datum(selectedProject.series)
-        .attr('fill', 'none')
-        .attr('stroke', '#ef4444')
-        .attr('stroke-width', 2)
-        .attr('d', projLine)
-    }
+    // Selected project curve overlay removed with project mode
 
     // Tooltip helpers for per-project mini sparkline (real cumulative)
     function renderSparklineSVG(series) {
@@ -336,7 +326,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
 
     // Point cloud of ALL snapshots (EXITED + ACTIVE) for visual exploration
-    if (showPointCloud && viewMode !== 'cohort') {
+    if (showPointCloud) {
       const drawCloud = (points, color) => {
         const pts = Array.isArray(points) ? points : []
         if (!pts.length) return
@@ -495,7 +485,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, viewMode])
+  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands])
 
   const params = data?.params
   const kpiRows = []
@@ -556,6 +546,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         <button className="chip" style={{ marginLeft: 0 }} onClick={() => setShowResidualsPanel(s => !s)}>
           {showResidualsPanel ? 'Ocultar' : 'Ver'} distribución y varianza por grupos
         </button>
+        <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowBands(s => !s)}>
+          {showBands ? 'Ocultar' : 'Ver'} bandas
+        </button>
         <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowMethodologyPanel(s => !s)}>
           {showMethodologyPanel ? 'Ocultar' : 'Ver'} ficha metodológica
         </button>
@@ -580,7 +573,13 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         </div>
       )}
       <SeriesKPIs rows={kpiRows} />
-      <ProjectPopover open={popover.open} onClose={() => setPopover({ open:false, data:null })} data={popover.data} />
+      <ProjectPopover
+        open={popover.open}
+        onClose={() => setPopover({ open:false, data:null })}
+        data={popover.data}
+        showBands={showBands}
+        onToggleBands={setShowBands}
+      />
     </div>
   )
 }
