@@ -6,7 +6,7 @@ import { MACROSECTOR_LABELS, MODALITY_LABELS } from '../labels'
 import SeriesKPIs from './SeriesKPIs.jsx'
 import ProjectPopover from './ProjectPopover.jsx'
 
-export default function CurveWorkbench({ filters, compareItems = [], showActivePoints = true, showPointCloud = false }) {
+export default function CurveWorkbench({ filters, compareItems = [], showActivePoints = true, showPointCloud = false, viewMode = 'cohort' }) {
   const svgRef = useRef(null)
   const tooltipRef = useRef(null)
   const tsCacheRef = useRef(new Map())
@@ -17,6 +17,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const [showResidualsPanel, setShowResidualsPanel] = useState(false)
   const [showMethodologyPanel, setShowMethodologyPanel] = useState(false)
   const [popover, setPopover] = useState({ open: false, data: null })
+  const [selectedProject, setSelectedProject] = useState(null)
 
   async function fetchSeries(pid) {
     const cache = tsCacheRef.current
@@ -36,6 +37,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
   async function openProject(pid) {
     const data = await fetchSeries(pid)
+    setSelectedProject(data)
     setPopover({ open: true, data })
   }
 
@@ -101,10 +103,10 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     setShowMain(!(compareItems && compareItems.length > 0))
   }, [compareItems?.length])
 
-  // Sync showScatter with prop from sidebar
+  // Sync showScatter with prop from sidebar and view mode
   useEffect(() => {
-    setShowScatter(!!showActivePoints)
-  }, [showActivePoints])
+    setShowScatter(viewMode === 'cohort' ? false : !!showActivePoints)
+  }, [showActivePoints, viewMode])
 
   useEffect(() => {
     if (!data) return
@@ -150,10 +152,38 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-opacity', 0.9)
       .attr('stroke-width', 1)
 
-    // Only the historical curve line for main filters
+    // Historical quantile bands
+    const bands = Array.isArray(data?.bands) ? data.bands : []
+    if (bands.length) {
+      const area95 = d3.area().x(d => x(d.k)).y0(d => y(d.p2_5 ?? d.p025 ?? d.lower95 ?? d.lower)).y1(d => y(d.p97_5 ?? d.p975 ?? d.upper95 ?? d.upper))
+      g.append('path')
+        .datum(bands)
+        .attr('fill', 'var(--line-main)')
+        .attr('fill-opacity', 0.05)
+        .attr('stroke', 'none')
+        .attr('d', area95)
+
+      const area80 = d3.area().x(d => x(d.k)).y0(d => y(d.p10 ?? d.lower80 ?? d.q10 ?? d.p10)).y1(d => y(d.p90 ?? d.upper80 ?? d.q90 ?? d.p90))
+      g.append('path')
+        .datum(bands)
+        .attr('fill', 'var(--line-main)')
+        .attr('fill-opacity', 0.15)
+        .attr('stroke', 'none')
+        .attr('d', area80)
+
+      const medLine = d3.line().x(d => x(d.k)).y(d => y(d.p50 ?? d.median ?? d.q50))
+      g.append('path')
+        .datum(bands)
+        .attr('fill', 'none')
+        .attr('stroke', 'var(--line-main)')
+        .attr('stroke-width', 2)
+        .attr('d', medLine)
+    }
+
+    // Only the historical curve line for main filters when bands absent
     const params = data?.params
     const line = d3.line().x(d => x(d.k)).y(d => y(d.hd))
-    if (showMain && params) {
+    if (showMain && params && !bands.length) {
       let curve = []
       const { b0, b1, b2 } = params
       const logistic3 = (k) => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
@@ -185,6 +215,17 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('stroke-dasharray', '6 4')
         .attr('d', line)
     })
+
+    // Selected project curve overlay
+    if (viewMode === 'project' && selectedProject?.series?.length) {
+      const projLine = d3.line().x(d => x(d.k)).y(d => y(d.d))
+      g.append('path')
+        .datum(selectedProject.series)
+        .attr('fill', 'none')
+        .attr('stroke', '#ef4444')
+        .attr('stroke-width', 2)
+        .attr('d', projLine)
+    }
 
     // Tooltip helpers for per-project mini sparkline (real cumulative)
     function renderSparklineSVG(series) {
@@ -295,7 +336,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
 
     // Point cloud of ALL snapshots (EXITED + ACTIVE) for visual exploration
-    if (showPointCloud) {
+    if (showPointCloud && viewMode !== 'cohort') {
       const drawCloud = (points, color) => {
         const pts = Array.isArray(points) ? points : []
         if (!pts.length) return
@@ -454,7 +495,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud])
+  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, viewMode])
 
   const params = data?.params
   const kpiRows = []
