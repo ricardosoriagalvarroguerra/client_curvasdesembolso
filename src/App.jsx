@@ -26,10 +26,21 @@ export default function App() {
     if (compareItems.length >= 7) return
     // Accept either raw filters or { filters, label }
     const f = (filtersArg && filtersArg.filters) ? filtersArg.filters : (filtersArg || filters)
-    const macro = f.macrosectors.length===1 ? (MACROSECTOR_LABELS[f.macrosectors[0]] || 'Global') : 'Global'
-    const modality = f.modalities.length===1 ? (MODALITY_LABELS[f.modalities[0]] || 'Todas') : 'Todas'
-    const country = f.countries.length===1 ? f.countries[0] : 'Global'
-    const mdb = (Array.isArray(f.mdbs) && f.mdbs.length===1) ? f.mdbs[0] : null
+    const macro = f.macrosectors.length === 1
+      ? (MACROSECTOR_LABELS[f.macrosectors[0]] ?? f.macrosectors[0])
+      : 'Global'
+    const modality = f.modalities.length === 1
+      ? (MODALITY_LABELS[f.modalities[0]] ?? f.modalities[0])
+      : 'Todas'
+    const country = (() => {
+      if (f.countries.length === 1) return f.countries[0]
+      if (f.countries.length > 1) {
+        const [first, ...rest] = f.countries
+        return `${first}+${rest.length}`
+      }
+      return 'Global'
+    })()
+    const mdb = (Array.isArray(f.mdbs) && f.mdbs.length === 1) ? f.mdbs[0] : null
     // Default compact label; allow override via filtersArg.label
     const base = `${country} · ${macro} · ${modality}`
     const computedLabel = mdb ? `${mdb} · ${base}` : base
