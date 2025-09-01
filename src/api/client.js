@@ -1,19 +1,23 @@
-const isDev = !!import.meta.env.DEV
-// En desarrollo, forzamos rutas relativas para usar el proxy de Vite.
-// En producción, permitimos configurar API_BASE vía VITE_API_BASE, pero por
-// defecto usamos rutas relativas para que un proxy (por ejemplo, el nginx del
-// contenedor) reenvíe las peticiones y así evitar problemas de CORS.
-const API_BASE = (!isDev
-  ? (import.meta.env.VITE_API_BASE || '')
-  : ''
-).replace(/\/$/, '')
+// Todas las peticiones apuntan a rutas relativas. En desarrollo Vite redirige
+// mediante su proxy y en producción el Nginx del contenedor reenvía las
+// solicitudes al backend. De esta forma evitamos llamadas "cross‑origin" que
+// disparaban errores de CORS cuando se configuraba un API base absoluto.
+const API_BASE = ''
 
 async function request(path, options = {}) {
-  const url = API_BASE ? `${API_BASE}${path}` : path
+  const url = `${API_BASE}${path}`
   const isGet = !options.method || options.method.toUpperCase() === 'GET'
   const headers = isGet ? undefined : { 'Content-Type': 'application/json', ...(options.headers || {}) }
-  const res = await fetch(url, { headers, ...options })
-  const text = await res.text()
+  let res, text
+  try {
+    res = await fetch(url, { headers, ...options })
+    text = await res.text()
+  } catch (networkErr) {
+    const err = new Error('Network request failed')
+    err.cause = networkErr
+    err.status = 0
+    throw err
+  }
   let data
   try { data = text ? JSON.parse(text) : null } catch (e) { data = text }
   if (!res.ok) {
