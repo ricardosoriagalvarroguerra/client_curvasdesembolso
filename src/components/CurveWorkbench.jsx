@@ -223,8 +223,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-width', 1)
 
     // Historical quantile bands
-    const rawBands = normalizeBands(pred?.bands || data?.bands || [])
-    const bands = showBands ? rawBands : []
+    const dataBands = normalizeBands(data?.bands || [])
+    const predBands = showBands ? normalizeBands(pred?.bands || []) : []
+    const bands = showBands ? (predBands.length ? predBands : dataBands) : []
     if (bands.length) {
       const area95 = d3.area()
         .defined(d => isFinite(d.p2_5) && isFinite(d.p97_5))
@@ -263,13 +264,13 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
 
     // Median line when bands hidden but available
-    if (!bands.length && rawBands.length) {
+    if (!bands.length && dataBands.length) {
       const medLine = d3.line()
         .defined(d => isFinite(d.p50))
         .x(d => x(d.k))
         .y(d => y(d.p50))
       g.append('path')
-        .datum(rawBands)
+        .datum(dataBands)
         .attr('fill', 'none')
         .attr('stroke', 'var(--line-main)')
         .attr('stroke-width', 2)
@@ -278,7 +279,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
     // Only the historical curve line for main filters when no bands available
     const params = data?.params
-    if (!bands.length && !rawBands.length && params) {
+    if (!bands.length && !dataBands.length && params) {
       const curve = []
       const { b0, b1, b2 } = params
       const logistic3 = (k) => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
