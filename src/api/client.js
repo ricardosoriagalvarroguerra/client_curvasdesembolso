@@ -31,11 +31,14 @@ export function getFilters() {
 }
 
 export function postCurveFit(filters, opts = {}) {
-  const body = { ...filters }
-  if (!body.fromFirstDisbursement) delete body.fromFirstDisbursement
-  return request('/api/curves/fit', {
+  const { fromFirstDisbursement, ...rest } = filters
+  const qs = new URLSearchParams()
+  if (fromFirstDisbursement) qs.set('fromFirstDisbursement', 'true')
+  const query = qs.toString()
+  const path = query ? `/api/curves/fit?${query}` : '/api/curves/fit'
+  return request(path, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(rest),
     ...opts,
   })
 }

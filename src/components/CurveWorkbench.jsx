@@ -137,11 +137,21 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     setPopover({ open: true, data })
   }
 
-  const stableFilters = useMemo(() => {
-    const out = { ...filters }
-    if (!out.fromFirstDisbursement) delete out.fromFirstDisbursement
-    return out
-  }, [filters.macrosectors, filters.modalities, filters.countries, filters.mdbs, filters.ticketMin, filters.ticketMax, filters.yearFrom, filters.yearTo, filters.onlyExited, filters.fromFirstDisbursement])
+  const stableFilters = useMemo(() => ({
+    ...filters,
+    fromFirstDisbursement: !!filters.fromFirstDisbursement,
+  }), [
+    filters.macrosectors,
+    filters.modalities,
+    filters.countries,
+    filters.mdbs,
+    filters.ticketMin,
+    filters.ticketMax,
+    filters.yearFrom,
+    filters.yearTo,
+    filters.onlyExited,
+    filters.fromFirstDisbursement,
+  ])
   const { data, error, isValidating: loadingMain } = useSWR(
     ['curve', JSON.stringify(stableFilters)],
     ([, body], { signal } = {}) => postCurveFit(JSON.parse(body), { signal }),
@@ -163,12 +173,14 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
   let errorMessage = null
   if (error) {
-    errorMessage = error.message
+    errorMessage = error.status ? `${error.status} ${error.message}` : error.message
   } else if (showBands && !hideMainCurve) {
     if (predError) {
-      errorMessage = (predError.status === 400 || predError.status === 422)
-        ? 'Método no válido para esta combinación'
-        : predError.message
+      if (predError.status === 400 || predError.status === 422) {
+        errorMessage = `${predError.status} Método no válido para esta combinación`
+      } else {
+        errorMessage = predError.status ? `${predError.status} ${predError.message}` : predError.message
+      }
     } else if (!loadingBands && (!pred?.bands || !pred.bands.length)) {
       errorMessage = 'Método no válido para esta combinación'
     }
