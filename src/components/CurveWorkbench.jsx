@@ -115,18 +115,19 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
   async function fetchSeries(pid) {
     const cache = tsCacheRef.current
-    if (cache.has(pid)) return cache.get(pid)
+    const key = JSON.stringify({ pid, fromFirstDisbursement: !!filters.fromFirstDisbursement, yearFrom: filters.yearFrom, yearTo: filters.yearTo })
+    if (cache.has(key)) return cache.get(key)
     try {
       const params = { yearFrom: filters.yearFrom, yearTo: filters.yearTo }
       if (filters.fromFirstDisbursement) params.fromFirstDisbursement = true
       const resp = await getProjectTimeseries(pid, params)
       const series = Array.isArray(resp?.series) ? sanitizeSeries(resp.series, 'k', 'd') : []
       const payload = { project: resp?.project, series }
-      cache.set(pid, payload)
+      cache.set(key, payload)
       return payload
     } catch {
       const payload = { project: { iatiidentifier: pid }, series: [] }
-      cache.set(pid, payload)
+      cache.set(key, payload)
       return payload
     }
   }
