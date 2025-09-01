@@ -56,7 +56,7 @@ function sanitizeSeries(arr = [], xKey = "k", yKey = "d") {
     .sort((a,b) => a.k - b.k)
 }
 
-export default function CurveWorkbench({ filters, compareItems = [], showActivePoints = true, showPointCloud = false }) {
+export default function CurveWorkbench({ filters, compareItems = [], showActivePoints = true, showPointCloud = false, hideMainCurve = false }) {
   const svgRef = useRef(null)
   const tooltipRef = useRef(null)
   const tsCacheRef = useRef(new Map())
@@ -100,7 +100,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   )
 
   const { data: pred, error: predError, isValidating: loadingBands } = useSWR(
-    ['pred-bands', JSON.stringify({ ...stableFilters, method: bandMethod, level: Number(bandLevel) })],
+    hideMainCurve ? null : ['pred-bands', JSON.stringify({ ...stableFilters, method: bandMethod, level: Number(bandLevel) })],
     ([, body], { signal } = {}) => getPredictionBands(JSON.parse(body), { signal }),
     { revalidateOnFocus: false, dedupingInterval: 300 }
   )
@@ -108,14 +108,14 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   if (error) {
     console.warn('Curve fit error:', error)
   }
-  if (predError) {
+  if (predError && !hideMainCurve) {
     console.warn('Prediction bands error:', predError)
   }
 
   let errorMessage = null
   if (error) {
     errorMessage = error.message
-  } else if (showBands) {
+  } else if (showBands && !hideMainCurve) {
     if (predError) {
       errorMessage = (predError.status === 400 || predError.status === 422)
         ? 'Método no válido para esta combinación'
@@ -218,9 +218,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     // Determine a consistent X-domain across all visible curves
     const compareList = Array.isArray(compareResults) ? compareResults : []
     const domainCandidates = []
-    if (data?.kDomain?.[1] != null) domainCandidates.push(data.kDomain[1])
+    if (!hideMainCurve && data?.kDomain?.[1] != null) domainCandidates.push(data.kDomain[1])
     compareList.forEach(cd => { if (cd?.kDomain?.[1] != null) domainCandidates.push(cd.kDomain[1]) })
-    const KMAX = domainCandidates.length ? Math.max(...domainCandidates) : (data.kDomain?.[1] ?? 120)
+    const KMAX = domainCandidates.length ? Math.max(...domainCandidates) : (!hideMainCurve ? (data.kDomain?.[1] ?? 120) : 120)
     const x = d3.scaleLinear().domain([0, KMAX]).range([0, innerW])
     const y = d3.scaleLinear().domain([0, 1]).range([innerH, 0])
     const line = d3.line().defined(d => isFinite(d.hd)).x(d => x(d.k)).y(d => y(d.hd))
@@ -246,52 +246,48 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-width', 1)
 
     // Historical quantile bands and main curve
-    const dataBands = Array.isArray(data?.bands) ? normalizeBands(data.bands) : []
-    const predBands = showBands && Array.isArray(pred?.bands) ? normalizeBands(pred.bands) : []
-    const bands = showBands ? predBands : []
-    const params = data?.params
+    const dataBands = (!hideMainCurve && Array.isArray(data?.bands)) ? normalizeBands(data.bands) : []
+    const predBands = (!hideMainCurve && showBands && Array.isArray(pred?.bands)) ? normalizeBands(pred.bands) : []
+    const bands = (showBands && !hideMainCurve) ? predBands : []
+    const params = hideMainCurve ? null : data?.params
 
     // Determine main curve independent of prediction bands
     let curve = []
-    if (dataBands.length) {
-      curve = dataBands.map(d => ({ k: d.k, d: d.p50 }))
-    } else if (params) {
-      const { b0, b1, b2 } = params
-      const logistic3 = k => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
-      const kMaxLocal = data.kDomain?.[1] ?? 120
-      for (let k = 0; k <= kMaxLocal; k++) curve.push({ k, d: logistic3(k) })
+    if (!hideMainCurve) {
+      if (dataBands.length) {
+        curve = dataBands.map(d => ({ k: d.k, d: d.p50 }))
+      } else if (params) {
+        const { b0, b1, b2 } = params
+        const logistic3 = k => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
+        const kMaxLocal = data.kDomain?.[1] ?? 120
+        for (let k = 0; k <= kMaxLocal; k++) curve.push({ k, d: logistic3(k) })
+      }
     }
 
     if (bands.length) {
-      const [loKey, hiKey] = (() => {
-        switch (bandLevel) {
-          case '95': return ['p2_5', 'p97_5']
-          case '90': return ['p5', 'p95']
-          default:   return ['p10', 'p90']
-        }
-      })()
-      const area = d3.area()
-        .defined(d => {
-          const lo = d[loKey] ?? d.lower
-          const hi = d[hiKey] ?? d.upper
-          return isFinite(lo) && isFinite(hi)
-        })
-        .x(d => x(d.k))
-        .y0(d => {
-          const lo = d[loKey] ?? d.lower
-          return y(lo)
-        })
-        .y1(d => {
-          const hi = d[hiKey] ?? d.upper
-          return y(hi)
-        })
-      const op = bandLevel === '95' ? 0.05 : bandLevel === '90' ? 0.1 : 0.15
-      g.append('path')
-        .datum(bands)
-        .attr('fill', 'var(--line-main)')
-        .attr('fill-opacity', op)
-        .attr('stroke', 'none')
-        .attr('d', area)
+      const has = key => bands.some(b => Number.isFinite(b[key]))
+      let loKey, hiKey
+      if (bandLevel === '95' && has('p2_5') && has('p97_5')) { loKey = 'p2_5'; hiKey = 'p97_5' }
+      else if (bandLevel === '90' && has('p5') && has('p95')) { loKey = 'p5'; hiKey = 'p95' }
+      else if (bandLevel === '80' && has('p10') && has('p90')) { loKey = 'p10'; hiKey = 'p90' }
+      else if (has('lower') && has('upper')) { loKey = 'lower'; hiKey = 'upper' }
+      else if (has('p10') && has('p90')) { loKey = 'p10'; hiKey = 'p90' }
+      else if (has('p5') && has('p95')) { loKey = 'p5'; hiKey = 'p95' }
+      else if (has('p2_5') && has('p97_5')) { loKey = 'p2_5'; hiKey = 'p97_5' }
+      if (loKey && hiKey) {
+        const area = d3.area()
+          .defined(d => isFinite(d[loKey]) && isFinite(d[hiKey]))
+          .x(d => x(d.k))
+          .y0(d => y(d[loKey]))
+          .y1(d => y(d[hiKey]))
+        const op = bandLevel === '95' ? 0.05 : bandLevel === '90' ? 0.1 : 0.15
+        g.append('path')
+          .datum(bands)
+          .attr('fill', 'var(--line-main)')
+          .attr('fill-opacity', op)
+          .attr('stroke', 'none')
+          .attr('d', area)
+      }
     }
 
     if (curve.length) {
@@ -469,7 +465,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           .on('mouseleave', function () { clearHighlight(); hideTooltip() })
           .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
       }
-      drawCloud(data.points, '#6b7280')
+      if (!hideMainCurve) drawCloud(data.points, '#6b7280')
       compareList.forEach((cd, idx) => {
         drawCloud(cd?.points, colors[idx % colors.length])
       })
@@ -477,7 +473,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
     // ACTIVE scatter points per series, colored to match lines
     if (showScatter) {
-      const active = Array.isArray(data?.activePoints) ? data.activePoints : []
+      const active = (!hideMainCurve && Array.isArray(data?.activePoints)) ? data.activePoints : []
       if (active.length) {
         g.append('g')
           .attr('fill', 'var(--line-main)')
@@ -542,7 +538,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const hdMain = 1 / (1 + Math.exp(-(b0 + b1 * kVal + b2 * kVal * kVal)))
       const colors = ['#ef4444', '#10b981', '#f59e0b', '#a78bfa', '#22d3ee', '#f472b6', '#34d399']
       let rows = []
-      if (!(compareItems?.length)) {
+      if (!hideMainCurve && !(compareItems?.length)) {
         rows.push({ label: mainLabel, color: '#4ea1f3', pctNum: hdMain * 100 })
       }
       const compHds = []
@@ -591,11 +587,11 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, pred, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands, bandLevel])
+  }, [data, pred, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands, bandLevel, hideMainCurve])
 
-  const params = data?.params
+  const params = hideMainCurve ? null : data?.params
   const kpiRows = []
-  if (data?.params && !(compareItems?.length)) {
+  if (!hideMainCurve && data?.params && !(compareItems?.length)) {
     const years = `${filters.yearFrom}\u2013${filters.yearTo}`
     const mainLabelWithYears = `${mainLabel} · ${years}`
     kpiRows.push({ label: mainLabelWithYears, color: '#4ea1f3', params: data.params, kMax: data.kDomain?.[1] ?? 120 })
