@@ -1,46 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import useSWR from 'swr'
+import React, { useEffect, useRef } from 'react'
 import * as d3 from 'd3'
 import { MACROSECTOR_LABELS, MODALITY_LABELS } from '../labels'
-import { getPredictionBands } from '../api/client'
 
-export default function ProjectPopover({ open, onClose, data, showBands, method = 'bootstrap', level = '90' }) {
+export default function ProjectPopover({ open, onClose, data }) {
   const ref = useRef(null)
-  const tooltipRef = useRef(null)
-
-  // Tooltip element
-  useEffect(() => {
-    const el = document.createElement('div')
-    el.className = 'tooltip'
-    el.style.display = 'none'
-    document.body.appendChild(el)
-    tooltipRef.current = el
-    return () => { el.remove() }
-  }, [])
-
-  const pid = data?.project?.iatiidentifier
-  const [debKey, setDebKey] = useState(null)
-  useEffect(() => {
-    if (!open || !showBands || !pid) { setDebKey(null); return }
-    const h = setTimeout(() => setDebKey({ pid, method, level }), 300)
-    return () => clearTimeout(h)
-  }, [open, showBands, pid, method, level])
-
-  const { data: bandResp, error: bandError, isValidating: bandLoading } = useSWR(
-    debKey ? ['pb', debKey.pid, debKey.method, debKey.level] : null,
-    ([, projectId, m, l]) => getPredictionBands(projectId, { method: m, level: l, smooth: true }),
-    { revalidateOnFocus: false }
-  )
-
-  const bands = useMemo(() => {
-    const arr = Array.isArray(bandResp?.series) ? bandResp.series : Array.isArray(bandResp) ? bandResp : []
-    return arr.map(p => ({
-      t: p.t ? new Date(p.t) : p.k,
-      lower: p.lower,
-      upper: p.upper,
-      y_hat: p.y_hat
-    }))
-  }, [bandResp])
 
   useEffect(() => {
     if (!open || !data) return
@@ -60,14 +23,11 @@ export default function ProjectPopover({ open, onClose, data, showBands, method 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
     const pts = series.map(p => ({ t: p.t ? new Date(p.t) : p.k, y: p.y ?? p.d }))
-    const xItems = [...pts]
-    if (showBands && bands.length) bands.forEach(b => xItems.push(b))
-    const isDate = xItems.some(d => d.t instanceof Date)
-    const xDomain = d3.extent(xItems, d => d.t)
+    const isDate = pts.some(d => d.t instanceof Date)
+    const xDomain = d3.extent(pts, d => d.t)
     const x = isDate ? d3.scaleUtc().domain(xDomain).range([0, innerW]) : d3.scaleLinear().domain(xDomain).range([0, innerW])
 
     const yVals = pts.map(p => p.y)
-    if (showBands && bands.length) bands.forEach(b => { yVals.push(b.lower, b.upper) })
     const y = d3.scaleLinear().domain([0, Math.max(1, d3.max(yVals) || 1)]).range([innerH, 0])
 
     const line = d3.line().defined(d => d.y != null).x(d => x(d.t)).y(d => y(d.y))
@@ -75,54 +35,13 @@ export default function ProjectPopover({ open, onClose, data, showBands, method 
     g.append('g').attr('transform', `translate(0,${innerH})`).call((isDate ? d3.axisBottom(x).ticks(Math.max(3, Math.round(innerW / 120))) : d3.axisBottom(x).ticks(Math.max(3, Math.round(innerW / 120)))))
     g.append('g').call(d3.axisLeft(y).ticks(4))
 
-    if (showBands && bands.length) {
-      const area = d3.area()
-        .x(d => x(d.t))
-        .y0(d => y(d.lower))
-        .y1(d => y(d.upper))
-      g.append('path')
-        .datum(bands)
-        .attr('fill', 'var(--line-main)')
-        .attr('fill-opacity', 0.15)
-        .attr('stroke', 'none')
-        .attr('d', area)
-      const yhatLine = d3.line().x(d => x(d.t)).y(d => y(d.y_hat))
-      g.append('path')
-        .datum(bands)
-        .attr('fill', 'none')
-        .attr('stroke', 'var(--line-main)')
-        .attr('stroke-width', 1)
-        .attr('stroke-dasharray', '4 4')
-        .attr('d', yhatLine)
-
-      const bisect = d3.bisector(d => d.t).left
-      svg.on('mousemove', e => {
-        const [mx] = d3.pointer(e, g.node())
-        const x0 = x.invert(mx)
-        const idx = bisect(bands, x0)
-        const d0 = bands[Math.min(bands.length - 1, Math.max(0, idx))]
-        const t = tooltipRef.current
-        if (!t) return
-        t.style.display = 'block'
-        t.style.left = (e.clientX + 12) + 'px'
-        t.style.top = (e.clientY + 12) + 'px'
-        t.style.color = 'var(--text)'
-        t.style.border = '1px solid var(--border)'
-        t.style.background = 'var(--input-bg)'
-        const label = isDate && d0.t instanceof Date ? d0.t.toISOString().slice(0,10) : d0.t
-        t.innerHTML = `<div style="font-weight:600;margin-bottom:4px">${label}</div>` +
-          `<div style="color:var(--muted)">[${d0.lower.toFixed(3)}, ${d0.y_hat.toFixed(3)}, ${d0.upper.toFixed(3)}]</div>`
-      })
-      svg.on('mouseleave', () => { const t = tooltipRef.current; if (t) t.style.display = 'none' })
-    }
-
     g.append('path')
       .datum(pts)
       .attr('fill', 'none')
       .attr('stroke', 'var(--line-main)')
       .attr('stroke-width', 2)
       .attr('d', line)
-  }, [open, data, bands, showBands])
+  }, [open, data])
 
   if (!open || !data) return null
 
@@ -145,14 +64,6 @@ export default function ProjectPopover({ open, onClose, data, showBands, method 
             <button className="btn" style={{ marginLeft:8 }} onClick={onClose}>Cerrar</button>
           </div>
         </div>
-        {showBands && bandLoading && <div style={{ color:'var(--muted)', marginTop:4 }}>Cargando bandas...</div>}
-        {showBands && bandError && <div style={{ color:'var(--danger)', marginTop:4 }}>Error al cargar bandas</div>}
-        {showBands && !bandLoading && !bandError && !bands.length && (
-          <div style={{ color:'var(--muted)', marginTop:4 }}>Sin bandas disponibles</div>
-        )}
-        {showBands && !bandLoading && !bandError && bands.length > 0 && (
-          <div style={{ color:'var(--muted)', marginTop:4 }}>Banda ({level}%) método: {method}</div>
-        )}
         <div ref={ref} style={{ marginTop:10, width:'100%' }} />
       </div>
     </div>

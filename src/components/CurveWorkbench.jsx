@@ -17,7 +17,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const [showResidualsPanel, setShowResidualsPanel] = useState(false)
   const [showMethodologyPanel, setShowMethodologyPanel] = useState(false)
   const [popover, setPopover] = useState({ open: false, data: null })
-  const [showBands, setShowBands] = useState(true)
+  // Start with prediction bands hidden by default
+  const [showBands, setShowBands] = useState(false)
   const [bandMethod, setBandMethod] = useState('bootstrap')
   const [bandLevel, setBandLevel] = useState('90')
 
@@ -103,7 +104,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   useEffect(() => {
     const qs = new URLSearchParams(window.location.search)
     const pb = qs.get('pb')
-    setShowBands(pb === null ? true : pb === '1')
+    setShowBands(pb === null ? false : pb === '1')
     setBandMethod(qs.get('pb_m') || 'bootstrap')
     setBandLevel(qs.get('pb_l') || '90')
   }, [])
@@ -666,9 +667,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         open={popover.open}
         onClose={() => setPopover({ open:false, data:null })}
         data={popover.data}
-        showBands={showBands}
-        method={bandMethod}
-        level={bandLevel}
       />
     </div>
   )
