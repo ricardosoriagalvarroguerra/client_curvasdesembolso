@@ -14,6 +14,7 @@ export default function App() {
     yearFrom: 2010,
     yearTo: 2024,
     onlyExited: true,
+    fromFirstDisbursement: false,
   })
   const [compareItems, setCompareItems] = useState([]) // up to 7 curves
   const [showActivePoints, setShowActivePoints] = useState(true)
@@ -58,6 +59,7 @@ export default function App() {
       yearFrom: f.yearFrom,
       yearTo: f.yearTo,
       onlyExited: f.onlyExited,
+      fromFirstDisbursement: f.fromFirstDisbursement,
     }
 
     const label = (filtersArg && filtersArg.label) ? filtersArg.label : defaultLabel
@@ -102,6 +104,7 @@ export default function App() {
       yearFrom,
       yearTo,
       onlyExited: true,
+      fromFirstDisbursement: picks.every(p => p.filters?.fromFirstDisbursement),
     }
     // Build compact combined label: "MDB · AR+BO+BR+2 · Macro · Modality"
     const mdbPart = (mdbsUnion.length === 1)
