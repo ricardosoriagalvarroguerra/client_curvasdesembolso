@@ -83,13 +83,13 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   }
 
   const stableFilters = useMemo(() => ({ ...filters }), [filters.macrosectors, filters.modalities, filters.countries, filters.mdbs, filters.ticketMin, filters.ticketMax, filters.yearFrom, filters.yearTo, filters.onlyExited])
-  const { data, error } = useSWR(
+  const { data, error, isValidating: loadingMain } = useSWR(
     ['curve', JSON.stringify(stableFilters)],
     ([, body], { signal } = {}) => postCurveFit(JSON.parse(body), { signal }),
     { revalidateOnFocus: false, dedupingInterval: 300, keepPreviousData: true }
   )
 
-  const { data: pred, error: predError } = useSWR(
+  const { data: pred, error: predError, isValidating: loadingBands } = useSWR(
     ['pred-bands', JSON.stringify({ ...stableFilters, method: bandMethod, level: bandLevel })],
     ([, body], { signal } = {}) => getPredictionBands(JSON.parse(body), { signal }),
     { revalidateOnFocus: false, dedupingInterval: 300 }
@@ -100,6 +100,19 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   }
   if (predError) {
     console.warn('Prediction bands error:', predError)
+  }
+
+  let errorMessage = null
+  if (error) {
+    errorMessage = error.message
+  } else if (showBands) {
+    if (predError) {
+      errorMessage = (predError.status === 400 || predError.status === 422)
+        ? 'Método no válido para esta combinación'
+        : predError.message
+    } else if (!loadingBands && (!pred?.bands || !pred.bands.length)) {
+      errorMessage = 'Método no válido para esta combinación'
+    }
   }
 
   // Dynamic label for main series (prepend MDB prefix if selected)
@@ -616,8 +629,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   return (
     <div>
       {/* KPIs removed per request */}
-      {(error || predError) && (
-        <div className="chip" style={{ color:'#ef4444' }}>{error?.message || predError?.message || 'Error'}</div>
+      {errorMessage && (
+        <div className="chip" style={{ color:'#ef4444' }}>{errorMessage}</div>
       )}
       <div className="summary" style={{ alignItems:'center' }}>
         <button className="chip" style={{ marginLeft: 0 }} onClick={() => setShowResidualsPanel(s => !s)}>
@@ -639,6 +652,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
               <option value="95">95%</option>
             </select>
           </>
+        )}
+        {(loadingMain || (showBands && loadingBands)) && (
+          <span className="chip" style={{ marginLeft: 8 }}>Calculando...</span>
         )}
         <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowMethodologyPanel(s => !s)}>
           {showMethodologyPanel ? 'Ocultar' : 'Ver'} ficha metodológica
