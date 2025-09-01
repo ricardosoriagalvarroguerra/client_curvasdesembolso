@@ -56,9 +56,12 @@ export function getPredictionBands(params = {}, opts = {}) {
   } = params
   const qs = new URLSearchParams({ method, level, smooth })
   if (iatiidentifier) qs.set('iatiidentifier', iatiidentifier)
-  return request(`/api/curves/prediction-bands?${qs.toString()}`,{ 
-    method: 'POST',
-    body: JSON.stringify(filters),
+  for (const [k, v] of Object.entries(filters)) {
+    if (Array.isArray(v)) v.forEach(val => qs.append(k, val))
+    else if (v !== undefined && v !== null) qs.append(k, v)
+  }
+  return request(`/api/curves/prediction-bands?${qs.toString()}`, {
+    method: 'GET',
     ...opts,
   })
 }
