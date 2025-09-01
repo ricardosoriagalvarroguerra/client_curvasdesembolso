@@ -17,7 +17,8 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Install envsubst for dynamic config generation
 RUN apk add --no-cache gettext
 
-# Template nginx config that respects the PORT environment variable
+# Template nginx config that respects the PORT environment variable and proxies
+# API requests to the backend, removing the Origin header to avoid CORS issues.
 COPY <<'EOF' /etc/nginx/conf.d/default.conf.template
 server {
   listen       ${PORT};
@@ -26,6 +27,15 @@ server {
   root   /usr/share/nginx/html;
   index  index.html index.htm;
 
+  location /api/ {
+    proxy_pass ${API_PROXY_TARGET};
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Origin "";
+  }
+
   location / {
     try_files $uri $uri/ /index.html;
   }
@@ -33,9 +43,10 @@ server {
 EOF
 
 ENV PORT=8080
+ENV API_PROXY_TARGET=https://curvasdesembolsoserver-production.up.railway.app/api/
 EXPOSE 8080
 
 # Render config from template and start nginx
-CMD ["sh", "-c", "envsubst '$PORT' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["sh", "-c", "envsubst '$PORT $API_PROXY_TARGET' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
 
 
