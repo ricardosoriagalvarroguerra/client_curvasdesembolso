@@ -151,6 +151,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     const KMAX = domainCandidates.length ? Math.max(...domainCandidates) : (data.kDomain?.[1] ?? 120)
     const x = d3.scaleLinear().domain([0, KMAX]).range([0, innerW])
     const y = d3.scaleLinear().domain([0, 1]).range([innerH, 0])
+    const line = d3.line().defined(d => isFinite(d.hd)).x(d => x(d.k)).y(d => y(d.hd))
 
     // Axes: show only y thresholds 30/50/80%
     const yThresholds = [0.3, 0.5, 0.8]
@@ -258,7 +259,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     // Only the historical curve line for main filters when no bands available
     const params = data?.params
     if (showMain && !bands.length && !rawBands.length && params) {
-      const line = d3.line().defined(d => isFinite(d.hd)).x(d => x(d.k)).y(d => y(d.hd))
       const curve = []
       const { b0, b1, b2 } = params
       const logistic3 = (k) => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
