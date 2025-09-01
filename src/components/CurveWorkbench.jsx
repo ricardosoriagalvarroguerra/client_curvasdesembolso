@@ -117,7 +117,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     const cache = tsCacheRef.current
     if (cache.has(pid)) return cache.get(pid)
     try {
-      const resp = await getProjectTimeseries(pid, { yearFrom: filters.yearFrom, yearTo: filters.yearTo })
+      const params = { yearFrom: filters.yearFrom, yearTo: filters.yearTo }
+      if (filters.fromFirstDisbursement) params.fromFirstDisbursement = true
+      const resp = await getProjectTimeseries(pid, params)
       const series = Array.isArray(resp?.series) ? sanitizeSeries(resp.series, 'k', 'd') : []
       const payload = { project: resp?.project, series }
       cache.set(pid, payload)
@@ -134,7 +136,11 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     setPopover({ open: true, data })
   }
 
-  const stableFilters = useMemo(() => ({ ...filters }), [filters.macrosectors, filters.modalities, filters.countries, filters.mdbs, filters.ticketMin, filters.ticketMax, filters.yearFrom, filters.yearTo, filters.onlyExited])
+  const stableFilters = useMemo(() => {
+    const out = { ...filters }
+    if (!out.fromFirstDisbursement) delete out.fromFirstDisbursement
+    return out
+  }, [filters.macrosectors, filters.modalities, filters.countries, filters.mdbs, filters.ticketMin, filters.ticketMax, filters.yearFrom, filters.yearTo, filters.onlyExited, filters.fromFirstDisbursement])
   const { data, error, isValidating: loadingMain } = useSWR(
     ['curve', JSON.stringify(stableFilters)],
     ([, body], { signal } = {}) => postCurveFit(JSON.parse(body), { signal }),

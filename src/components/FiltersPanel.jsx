@@ -54,6 +54,7 @@ export default function FiltersPanel({ filters, onChange, onAddCompare, canAdd, 
       yearFrom: Math.max(2010, data.yearMin || 2010),
       yearTo: Math.min(2024, data.yearMax || 2024),
       onlyExited: true,
+      fromFirstDisbursement: false,
     })
     if (typeof onToggleActivePoints === 'function') onToggleActivePoints(true)
   }
@@ -155,10 +156,20 @@ export default function FiltersPanel({ filters, onChange, onAddCompare, canAdd, 
 
       <div className="field">
         <label className="hint">Años</label>
-        <div className="row">
-          <input className="input" type="number" min={data.yearMin} max={local.yearTo} value={local.yearFrom} onChange={e => setLocal(prev => ({ ...prev, yearFrom: Number(e.target.value) }))} />
-          <input className="input" type="number" min={local.yearFrom} max={data.yearMax} value={local.yearTo} onChange={e => setLocal(prev => ({ ...prev, yearTo: Number(e.target.value) }))} />
-        </div>
+      <div className="row">
+        <input className="input" type="number" min={data.yearMin} max={local.yearTo} value={local.yearFrom} onChange={e => setLocal(prev => ({ ...prev, yearFrom: Number(e.target.value) }))} />
+        <input className="input" type="number" min={local.yearFrom} max={data.yearMax} value={local.yearTo} onChange={e => setLocal(prev => ({ ...prev, yearTo: Number(e.target.value) }))} />
+      </div>
+    </div>
+
+      <div className="field">
+        <label className="hint">Origen de la curva</label>
+        <button
+          className={`btn ${local.fromFirstDisbursement ? 'btn--accent' : 'btn--ghost'}`}
+          onClick={() => setLocal(prev => ({ ...prev, fromFirstDisbursement: !prev.fromFirstDisbursement }))}
+        >
+          {local.fromFirstDisbursement ? 'Primer desembolso' : 'Aprobación'}
+        </button>
       </div>
 
       <div className="field row">

@@ -29,15 +29,19 @@ export function getFilters() {
 }
 
 export function postCurveFit(filters, opts = {}) {
+  const body = { ...filters }
+  if (!body.fromFirstDisbursement) delete body.fromFirstDisbursement
   return request('/api/curves/fit', {
     method: 'POST',
-    body: JSON.stringify(filters),
+    body: JSON.stringify(body),
     ...opts,
   })
 }
 
 export function getProjectTimeseries(iatiidentifier, params = {}) {
-  const qs = new URLSearchParams(params)
+  const { fromFirstDisbursement, ...rest } = params
+  const qs = new URLSearchParams(rest)
+  if (fromFirstDisbursement) qs.set('fromFirstDisbursement', 'true')
   const query = qs.toString()
   const base = `/api/projects/${encodeURIComponent(iatiidentifier)}/timeseries`
   const path = query ? `${base}?${query}` : base
@@ -52,10 +56,12 @@ export function getPredictionBands(params = {}, opts = {}) {
     method = 'historical_quantiles',  // método por defecto
     level = 80,
     smooth = true,
+    fromFirstDisbursement,
     ...filters
   } = params
   const qs = new URLSearchParams({ method, level, smooth })
   if (iatiidentifier) qs.set('iatiidentifier', iatiidentifier)
+  if (fromFirstDisbursement) qs.set('fromFirstDisbursement', 'true')
   for (const [k, v] of Object.entries(filters)) {
     if (Array.isArray(v)) v.forEach(val => qs.append(k, val))
     else if (v !== undefined && v !== null) qs.append(k, v)
