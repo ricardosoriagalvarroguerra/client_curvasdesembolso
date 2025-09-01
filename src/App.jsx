@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, Suspense, lazy } from 'react'
 import { MACROSECTOR_LABELS, MODALITY_LABELS } from './labels'
-import FiltersPanel from './components/FiltersPanel.jsx'
-import CurveWorkbench from './components/CurveWorkbench.jsx'
+const FiltersPanel = lazy(() => import('./components/FiltersPanel.jsx'))
+const CurveWorkbench = lazy(() => import('./components/CurveWorkbench.jsx'))
 
 export default function App() {
   const [filters, setFilters] = useState({
@@ -103,28 +103,32 @@ export default function App() {
       </header>
       <div className="layout">
         <aside className="sidebar">
-          <FiltersPanel
-            filters={filters}
-            onChange={setFilters}
-            onAddCompare={addCurrentAsCompare}
-            canAdd={compareItems.length < 7}
-            onClearCompare={clearCompare}
-            compareItems={compareItems}
-            onRemoveCompare={removeCompare}
-            showActivePoints={showActivePoints}
-            onToggleActivePoints={setShowActivePoints}
-            showPointCloud={showPointCloud}
-            onTogglePointCloud={setShowPointCloud}
-            onCombine={combineSelected}
-          />
+          <Suspense fallback={<div>Cargando filtros...</div>}>
+            <FiltersPanel
+              filters={filters}
+              onChange={setFilters}
+              onAddCompare={addCurrentAsCompare}
+              canAdd={compareItems.length < 7}
+              onClearCompare={clearCompare}
+              compareItems={compareItems}
+              onRemoveCompare={removeCompare}
+              showActivePoints={showActivePoints}
+              onToggleActivePoints={setShowActivePoints}
+              showPointCloud={showPointCloud}
+              onTogglePointCloud={setShowPointCloud}
+              onCombine={combineSelected}
+            />
+          </Suspense>
         </aside>
         <main className="content">
-          <CurveWorkbench
-            filters={filters}
-            compareItems={compareItems}
-            showActivePoints={showActivePoints}
-            showPointCloud={showPointCloud}
-          />
+          <Suspense fallback={<div>Cargando curvas...</div>}>
+            <CurveWorkbench
+              filters={filters}
+              compareItems={compareItems}
+              showActivePoints={showActivePoints}
+              showPointCloud={showPointCloud}
+            />
+          </Suspense>
         </main>
       </div>
     </div>
