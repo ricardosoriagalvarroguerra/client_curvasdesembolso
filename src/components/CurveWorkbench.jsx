@@ -13,7 +13,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const hoveringPointRef = useRef(false)
   const [showScatter, setShowScatter] = useState(showActivePoints)
   const [compareResults, setCompareResults] = useState([])
-  const [showMain, setShowMain] = useState(true)
   const [showResidualsPanel, setShowResidualsPanel] = useState(false)
   const [showMethodologyPanel, setShowMethodologyPanel] = useState(false)
   const [popover, setPopover] = useState({ open: false, data: null })
@@ -119,10 +118,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     window.history.replaceState(null, '', newUrl)
   }, [showBands, bandMethod, bandLevel])
 
-  // Default behavior: si hay comparaciones, ocultar principal; si no, mostrarlo
-  useEffect(() => {
-    setShowMain(!(compareItems && compareItems.length > 0))
-  }, [compareItems?.length])
 
   // Sync showScatter with prop from sidebar and view mode
   useEffect(() => {
@@ -147,7 +142,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     // Determine a consistent X-domain across all visible curves
     const compareList = Array.isArray(compareResults) ? compareResults : []
     const domainCandidates = []
-    if (showMain && data?.kDomain?.[1] != null) domainCandidates.push(data.kDomain[1])
+    if (data?.kDomain?.[1] != null) domainCandidates.push(data.kDomain[1])
     compareList.forEach(cd => { if (cd?.kDomain?.[1] != null) domainCandidates.push(cd.kDomain[1]) })
     const KMAX = domainCandidates.length ? Math.max(...domainCandidates) : (data.kDomain?.[1] ?? 120)
     const x = d3.scaleLinear().domain([0, KMAX]).range([0, innerW])
@@ -244,7 +239,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
 
     // Median line when bands hidden but available
-    if (showMain && !bands.length && rawBands.length) {
+    if (!bands.length && rawBands.length) {
       const medLine = d3.line()
         .defined(d => isFinite(d.p50))
         .x(d => x(d.k))
@@ -259,7 +254,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
     // Only the historical curve line for main filters when no bands available
     const params = data?.params
-    if (showMain && !bands.length && !rawBands.length && params) {
+    if (!bands.length && !rawBands.length && params) {
       const curve = []
       const { b0, b1, b2 } = params
       const logistic3 = (k) => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
@@ -435,62 +430,56 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           .on('mouseleave', function () { clearHighlight(); hideTooltip() })
           .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
       }
-      if (showMain) {
-        drawCloud(data.points, '#6b7280')
-      } else {
-        compareList.forEach((cd, idx) => {
-          drawCloud(cd?.points, colors[idx % colors.length])
-        })
-      }
+      drawCloud(data.points, '#6b7280')
+      compareList.forEach((cd, idx) => {
+        drawCloud(cd?.points, colors[idx % colors.length])
+      })
     }
 
     // ACTIVE scatter points per series, colored to match lines
     if (showScatter) {
-      if (showMain) {
-        const active = Array.isArray(data?.activePoints) ? data.activePoints : []
-        if (active.length) {
-          g.append('g')
-            .attr('fill', 'var(--line-main)')
-            .attr('fill-opacity', 0.7)
-            .attr('data-layer', 'active')
-            .selectAll('circle')
-            .data(active)
-            .join('circle')
-            .classed('pt', true)
-            .attr('data-pid', d => d.iatiidentifier)
-            .attr('data-base-op', 0.7)
-            .attr('cx', d => x(d.k))
-            .attr('cy', d => y(d.d))
-            .attr('r', 2)
-            .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, '#2563eb'); showPointTooltip(e, d, '#2563eb') })
-            .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, '#2563eb'); showPointTooltip(e, d, '#2563eb') })
-            .on('mouseleave', function () { clearHighlight(); hideTooltip() })
-            .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
-        }
-      } else {
-        compareList.forEach((cd, idx) => {
-          const color = colors[idx % colors.length]
-          const active = Array.isArray(cd?.activePoints) ? cd.activePoints : []
-          if (!active.length) return
-      g.append('g')
-            .attr('fill', color)
-            .attr('fill-opacity', 0.7)
-            .attr('data-layer', 'active')
-        .selectAll('circle')
-            .data(active)
-        .join('circle')
-        .classed('pt', true)
-        .attr('data-pid', d => d.iatiidentifier)
-        .attr('data-base-op', 0.7)
-        .attr('cx', d => x(d.k))
-        .attr('cy', d => y(d.d))
-        .attr('r', 2)
-            .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
-            .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
-            .on('mouseleave', function () { clearHighlight(); hideTooltip() })
-            .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
-        })
+      const active = Array.isArray(data?.activePoints) ? data.activePoints : []
+      if (active.length) {
+        g.append('g')
+          .attr('fill', 'var(--line-main)')
+          .attr('fill-opacity', 0.7)
+          .attr('data-layer', 'active')
+          .selectAll('circle')
+          .data(active)
+          .join('circle')
+          .classed('pt', true)
+          .attr('data-pid', d => d.iatiidentifier)
+          .attr('data-base-op', 0.7)
+          .attr('cx', d => x(d.k))
+          .attr('cy', d => y(d.d))
+          .attr('r', 2)
+          .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, '#2563eb'); showPointTooltip(e, d, '#2563eb') })
+          .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, '#2563eb'); showPointTooltip(e, d, '#2563eb') })
+          .on('mouseleave', function () { clearHighlight(); hideTooltip() })
+          .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
       }
+      compareList.forEach((cd, idx) => {
+        const color = colors[idx % colors.length]
+        const activeC = Array.isArray(cd?.activePoints) ? cd.activePoints : []
+        if (!activeC.length) return
+        g.append('g')
+          .attr('fill', color)
+          .attr('fill-opacity', 0.7)
+          .attr('data-layer', 'active')
+          .selectAll('circle')
+          .data(activeC)
+          .join('circle')
+          .classed('pt', true)
+          .attr('data-pid', d => d.iatiidentifier)
+          .attr('data-base-op', 0.7)
+          .attr('cx', d => x(d.k))
+          .attr('cy', d => y(d.d))
+          .attr('r', 2)
+          .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
+          .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
+          .on('mouseleave', function () { clearHighlight(); hideTooltip() })
+          .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
+      })
     }
 
     // Threshold markers (50/80/95) for main and comparisons
@@ -514,7 +503,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const hdMain = 1 / (1 + Math.exp(-(b0 + b1 * kVal + b2 * kVal * kVal)))
       const colors = ['#ef4444', '#10b981', '#f59e0b', '#a78bfa', '#22d3ee', '#f472b6', '#34d399']
       let rows = []
-      if (showMain) rows.push({ label: mainLabel, color: '#4ea1f3', pctNum: hdMain * 100 })
+      rows.push({ label: mainLabel, color: '#4ea1f3', pctNum: hdMain * 100 })
       const compHds = []
       compareResults.forEach((cd, idx) => {
         if (!cd || !cd.params) return
@@ -535,10 +524,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       if (showScatter) {
         const thresholdPx = 12
         let near = false
-        if (showMain) {
-          const yMainPx = y(hdMain)
-          if (Math.abs(my - yMainPx) <= thresholdPx) near = true
-        }
+        const yMainPx = y(hdMain)
+        if (Math.abs(my - yMainPx) <= thresholdPx) near = true
         if (!near) {
           for (const c of compHds) {
             const yPx = y(c.hd)
@@ -565,7 +552,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
   const params = data?.params
   const kpiRows = []
-  if (data?.params && showMain) {
+  if (data?.params) {
     const years = `${filters.yearFrom}\u2013${filters.yearTo}`
     const mainLabelWithYears = `${mainLabel} · ${years}`
     kpiRows.push({ label: mainLabelWithYears, color: '#4ea1f3', params: data.params, kMax: data.kDomain?.[1] ?? 120 })
