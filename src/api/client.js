@@ -49,8 +49,8 @@ export function getProjectTimeseries(iatiidentifier, params = {}) {
 export function getPredictionBands(params = {}, opts = {}) {
   const {
     iatiidentifier,                   // opcional
-    method = 'historical_quantiles',  // nombre claro para el BE actual
-    level = 90,
+    method = 'historical_quantiles',  // método por defecto
+    level = 80,
     smooth = true,
     ...filters
   } = params
