@@ -173,14 +173,31 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-width', 1)
 
     // Historical quantile bands
-    const rawBands = Array.isArray(data?.bands) ? data.bands : []
+    const rawBands = Array.isArray(data?.bands)
+      ? data.bands.map(b => {
+          const pick = (...keys) => {
+            for (const k of keys) if (b[k] != null) return b[k]
+            return undefined
+          }
+          return {
+            k: b.k,
+            p2_5: pick('p2_5', 'p_2_5', 'p025', 'p02_5', 'lower95', 'lower'),
+            p05: pick('p05', 'p_05', 'p5', 'lower90', 'lower'),
+            p10: pick('p10', 'p_10', 'lower80', 'q10'),
+            p50: pick('p50', 'p_50', 'median', 'q50'),
+            p90: pick('p90', 'p_90', 'upper80', 'q90'),
+            p95: pick('p95', 'p_95', 'upper90', 'upper'),
+            p97_5: pick('p97_5', 'p_97_5', 'p975', 'upper95', 'upper')
+          }
+        })
+      : []
     const bands = showBands ? rawBands : []
     if (bands.length) {
       const area95 = d3.area()
-        .defined(d => isFinite(d.p2_5 ?? d.p025 ?? d.lower95 ?? d.lower) && isFinite(d.p97_5 ?? d.p975 ?? d.upper95 ?? d.upper))
+        .defined(d => isFinite(d.p2_5) && isFinite(d.p97_5))
         .x(d => x(d.k))
-        .y0(d => y(d.p2_5 ?? d.p025 ?? d.lower95 ?? d.lower))
-        .y1(d => y(d.p97_5 ?? d.p975 ?? d.upper95 ?? d.upper))
+        .y0(d => y(d.p2_5))
+        .y1(d => y(d.p97_5))
       g.append('path')
         .datum(bands)
         .attr('fill', 'var(--line-main)')
@@ -189,10 +206,10 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('d', area95)
 
       const area90 = d3.area()
-        .defined(d => isFinite(d.p05 ?? d.p5 ?? d.lower90 ?? d.lower) && isFinite(d.p95 ?? d.upper90 ?? d.upper))
+        .defined(d => isFinite(d.p05) && isFinite(d.p95))
         .x(d => x(d.k))
-        .y0(d => y(d.p05 ?? d.p5 ?? d.lower90 ?? d.lower))
-        .y1(d => y(d.p95 ?? d.upper90 ?? d.upper))
+        .y0(d => y(d.p05))
+        .y1(d => y(d.p95))
       g.append('path')
         .datum(bands)
         .attr('fill', 'var(--line-main)')
@@ -201,10 +218,10 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('d', area90)
 
       const area80 = d3.area()
-        .defined(d => isFinite(d.p10 ?? d.lower80 ?? d.q10 ?? d.p10) && isFinite(d.p90 ?? d.upper80 ?? d.q90 ?? d.p90))
+        .defined(d => isFinite(d.p10) && isFinite(d.p90))
         .x(d => x(d.k))
-        .y0(d => y(d.p10 ?? d.lower80 ?? d.q10 ?? d.p10))
-        .y1(d => y(d.p90 ?? d.upper80 ?? d.q90 ?? d.p90))
+        .y0(d => y(d.p10))
+        .y1(d => y(d.p90))
       g.append('path')
         .datum(bands)
         .attr('fill', 'var(--line-main)')
@@ -213,9 +230,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('d', area80)
 
       const medLine = d3.line()
-        .defined(d => isFinite(d.p50 ?? d.median ?? d.q50))
+        .defined(d => isFinite(d.p50))
         .x(d => x(d.k))
-        .y(d => y(d.p50 ?? d.median ?? d.q50))
+        .y(d => y(d.p50))
       g.append('path')
         .datum(bands)
         .attr('fill', 'none')
@@ -227,9 +244,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     // Median line when bands hidden but available
     if (showMain && !bands.length && rawBands.length) {
       const medLine = d3.line()
-        .defined(d => isFinite(d.p50 ?? d.median ?? d.q50))
+        .defined(d => isFinite(d.p50))
         .x(d => x(d.k))
-        .y(d => y(d.p50 ?? d.median ?? d.q50))
+        .y(d => y(d.p50))
       g.append('path')
         .datum(rawBands)
         .attr('fill', 'none')
