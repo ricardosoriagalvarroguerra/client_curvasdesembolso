@@ -4,30 +4,9 @@ import * as d3 from 'd3'
 import { MACROSECTOR_LABELS, MODALITY_LABELS } from '../labels'
 import { getPredictionBands } from '../api/client'
 
-export default function ProjectPopover({ open, onClose, data, showBands, onToggleBands }) {
+export default function ProjectPopover({ open, onClose, data, showBands, method = 'bootstrap', level = '90' }) {
   const ref = useRef(null)
   const tooltipRef = useRef(null)
-  const [method, setMethod] = useState('bootstrap')
-  const [level, setLevel] = useState('90')
-
-  // Sync state with query params on mount
-  useEffect(() => {
-    const qs = new URLSearchParams(window.location.search)
-    const pb = qs.get('pb')
-    onToggleBands(pb === null ? true : pb === '1')
-    setMethod(qs.get('pb_m') || 'bootstrap')
-    setLevel(qs.get('pb_l') || '90')
-  }, [onToggleBands])
-
-  // Persist params for deep linking
-  useEffect(() => {
-    const qs = new URLSearchParams(window.location.search)
-    if (showBands) qs.set('pb', '1'); else qs.delete('pb')
-    qs.set('pb_m', method)
-    qs.set('pb_l', level)
-    const newUrl = `${window.location.pathname}?${qs.toString()}${window.location.hash}`
-    window.history.replaceState(null, '', newUrl)
-  }, [showBands, method, level])
 
   // Tooltip element
   useEffect(() => {
@@ -165,25 +144,6 @@ export default function ProjectPopover({ open, onClose, data, showBands, onToggl
             <button className="btn" onClick={() => navigator.clipboard?.writeText(p.iatiidentifier || '')}>Copiar ID</button>
             <button className="btn" style={{ marginLeft:8 }} onClick={onClose}>Cerrar</button>
           </div>
-        </div>
-        <div className="row" style={{ marginTop:10, gap:8, alignItems:'center' }}>
-          <label className="row" style={{ gap:4 }}>
-            <input type="checkbox" checked={showBands} onChange={e => onToggleBands?.(e.target.checked)} /> Bandas de predicción
-          </label>
-          {showBands && (
-            <>
-              <select value={method} onChange={e => setMethod(e.target.value)}>
-                <option value="rolling_std">rolling_std</option>
-                <option value="bootstrap">bootstrap</option>
-                <option value="quantile_reg">quantile_reg</option>
-              </select>
-              <select value={level} onChange={e => setLevel(e.target.value)}>
-                <option value="80">80%</option>
-                <option value="90">90%</option>
-                <option value="95">95%</option>
-              </select>
-            </>
-          )}
         </div>
         {showBands && bandLoading && <div style={{ color:'var(--muted)', marginTop:4 }}>Cargando bandas...</div>}
         {showBands && bandError && <div style={{ color:'var(--danger)', marginTop:4 }}>Error al cargar bandas</div>}

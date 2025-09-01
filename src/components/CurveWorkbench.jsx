@@ -18,6 +18,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const [showMethodologyPanel, setShowMethodologyPanel] = useState(false)
   const [popover, setPopover] = useState({ open: false, data: null })
   const [showBands, setShowBands] = useState(true)
+  const [bandMethod, setBandMethod] = useState('bootstrap')
+  const [bandLevel, setBandLevel] = useState('90')
 
   async function fetchSeries(pid) {
     const cache = tsCacheRef.current
@@ -97,6 +99,25 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     return () => { el.remove() }
   }, [])
 
+  // Sync band settings with query params on mount
+  useEffect(() => {
+    const qs = new URLSearchParams(window.location.search)
+    const pb = qs.get('pb')
+    setShowBands(pb === null ? true : pb === '1')
+    setBandMethod(qs.get('pb_m') || 'bootstrap')
+    setBandLevel(qs.get('pb_l') || '90')
+  }, [])
+
+  // Persist band settings to query string
+  useEffect(() => {
+    const qs = new URLSearchParams(window.location.search)
+    if (showBands) qs.set('pb', '1'); else qs.delete('pb')
+    qs.set('pb_m', bandMethod)
+    qs.set('pb_l', bandLevel)
+    const newUrl = `${window.location.pathname}?${qs.toString()}${window.location.hash}`
+    window.history.replaceState(null, '', newUrl)
+  }, [showBands, bandMethod, bandLevel])
+
   // Default behavior: si hay comparaciones, ocultar principal; si no, mostrarlo
   useEffect(() => {
     setShowMain(!(compareItems && compareItems.length > 0))
@@ -152,9 +173,14 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-width', 1)
 
     // Historical quantile bands
-    const bands = showBands && Array.isArray(data?.bands) ? data.bands : []
+    const rawBands = Array.isArray(data?.bands) ? data.bands : []
+    const bands = showBands ? rawBands : []
     if (bands.length) {
-      const area95 = d3.area().x(d => x(d.k)).y0(d => y(d.p2_5 ?? d.p025 ?? d.lower95 ?? d.lower)).y1(d => y(d.p97_5 ?? d.p975 ?? d.upper95 ?? d.upper))
+      const area95 = d3.area()
+        .defined(d => isFinite(d.p2_5 ?? d.p025 ?? d.lower95 ?? d.lower) && isFinite(d.p97_5 ?? d.p975 ?? d.upper95 ?? d.upper))
+        .x(d => x(d.k))
+        .y0(d => y(d.p2_5 ?? d.p025 ?? d.lower95 ?? d.lower))
+        .y1(d => y(d.p97_5 ?? d.p975 ?? d.upper95 ?? d.upper))
       g.append('path')
         .datum(bands)
         .attr('fill', 'var(--line-main)')
@@ -162,7 +188,23 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('stroke', 'none')
         .attr('d', area95)
 
-      const area80 = d3.area().x(d => x(d.k)).y0(d => y(d.p10 ?? d.lower80 ?? d.q10 ?? d.p10)).y1(d => y(d.p90 ?? d.upper80 ?? d.q90 ?? d.p90))
+      const area90 = d3.area()
+        .defined(d => isFinite(d.p05 ?? d.p5 ?? d.lower90 ?? d.lower) && isFinite(d.p95 ?? d.upper90 ?? d.upper))
+        .x(d => x(d.k))
+        .y0(d => y(d.p05 ?? d.p5 ?? d.lower90 ?? d.lower))
+        .y1(d => y(d.p95 ?? d.upper90 ?? d.upper))
+      g.append('path')
+        .datum(bands)
+        .attr('fill', 'var(--line-main)')
+        .attr('fill-opacity', 0.1)
+        .attr('stroke', 'none')
+        .attr('d', area90)
+
+      const area80 = d3.area()
+        .defined(d => isFinite(d.p10 ?? d.lower80 ?? d.q10 ?? d.p10) && isFinite(d.p90 ?? d.upper80 ?? d.q90 ?? d.p90))
+        .x(d => x(d.k))
+        .y0(d => y(d.p10 ?? d.lower80 ?? d.q10 ?? d.p10))
+        .y1(d => y(d.p90 ?? d.upper80 ?? d.q90 ?? d.p90))
       g.append('path')
         .datum(bands)
         .attr('fill', 'var(--line-main)')
@@ -170,7 +212,10 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('stroke', 'none')
         .attr('d', area80)
 
-      const medLine = d3.line().x(d => x(d.k)).y(d => y(d.p50 ?? d.median ?? d.q50))
+      const medLine = d3.line()
+        .defined(d => isFinite(d.p50 ?? d.median ?? d.q50))
+        .x(d => x(d.k))
+        .y(d => y(d.p50 ?? d.median ?? d.q50))
       g.append('path')
         .datum(bands)
         .attr('fill', 'none')
@@ -179,16 +224,29 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('d', medLine)
     }
 
-    // Only the historical curve line for main filters when bands absent
+    // Median line when bands hidden but available
+    if (showMain && !bands.length && rawBands.length) {
+      const medLine = d3.line()
+        .defined(d => isFinite(d.p50 ?? d.median ?? d.q50))
+        .x(d => x(d.k))
+        .y(d => y(d.p50 ?? d.median ?? d.q50))
+      g.append('path')
+        .datum(rawBands)
+        .attr('fill', 'none')
+        .attr('stroke', 'var(--line-main)')
+        .attr('stroke-width', 2)
+        .attr('d', medLine)
+    }
+
+    // Only the historical curve line for main filters when no bands available
     const params = data?.params
-    const line = d3.line().x(d => x(d.k)).y(d => y(d.hd))
-    if (showMain && params && !bands.length) {
-      let curve = []
+    if (showMain && !bands.length && !rawBands.length && params) {
+      const line = d3.line().defined(d => isFinite(d.hd)).x(d => x(d.k)).y(d => y(d.hd))
+      const curve = []
       const { b0, b1, b2 } = params
       const logistic3 = (k) => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
       const kMaxLocal = data.kDomain?.[1] ?? 120
       for (let k = 0; k <= kMaxLocal; k++) curve.push({ k, hd: logistic3(k) })
-
       g.append('path')
         .datum(curve)
         .attr('fill', 'none')
@@ -549,6 +607,20 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowBands(s => !s)}>
           {showBands ? 'Ocultar' : 'Ver'} bandas
         </button>
+        {showBands && (
+          <>
+            <select value={bandMethod} onChange={e => setBandMethod(e.target.value)} style={{ marginLeft: 8 }}>
+              <option value="rolling_std">rolling_std</option>
+              <option value="bootstrap">bootstrap</option>
+              <option value="quantile_reg">quantile_reg</option>
+            </select>
+            <select value={bandLevel} onChange={e => setBandLevel(e.target.value)} style={{ marginLeft: 8 }}>
+              <option value="80">80%</option>
+              <option value="90">90%</option>
+              <option value="95">95%</option>
+            </select>
+          </>
+        )}
         <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowMethodologyPanel(s => !s)}>
           {showMethodologyPanel ? 'Ocultar' : 'Ver'} ficha metodológica
         </button>
@@ -578,7 +650,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         onClose={() => setPopover({ open:false, data:null })}
         data={popover.data}
         showBands={showBands}
-        onToggleBands={setShowBands}
+        method={bandMethod}
+        level={bandLevel}
       />
     </div>
   )
