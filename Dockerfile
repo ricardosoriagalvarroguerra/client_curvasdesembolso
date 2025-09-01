@@ -15,7 +15,8 @@ COPY --from=build /app/dist /usr/share/nginx/html
 RUN apk add --no-cache gettext
 
 # Template nginx config that respects the PORT environment variable and proxies
-# API requests to the backend, removing the Origin header to avoid CORS issues.
+# API requests to the backend, removing the Origin header to avoid CORS issues,
+# forwarding the correct Host header and enabling SNI for HTTPS backends.
 COPY <<'EOF' /etc/nginx/conf.d/default.conf.template
 server {
   listen       ${PORT};
@@ -26,11 +27,12 @@ server {
 
   location /api/ {
     proxy_pass ${API_PROXY_TARGET};
-    proxy_set_header Host $host;
+    proxy_set_header Host $proxy_host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Origin "";
+    proxy_ssl_server_name on;
   }
 
   location / {
