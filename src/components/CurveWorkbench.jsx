@@ -503,7 +503,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const hdMain = 1 / (1 + Math.exp(-(b0 + b1 * kVal + b2 * kVal * kVal)))
       const colors = ['#ef4444', '#10b981', '#f59e0b', '#a78bfa', '#22d3ee', '#f472b6', '#34d399']
       let rows = []
-      rows.push({ label: mainLabel, color: '#4ea1f3', pctNum: hdMain * 100 })
+      if (!(compareItems?.length)) {
+        rows.push({ label: mainLabel, color: '#4ea1f3', pctNum: hdMain * 100 })
+      }
       const compHds = []
       compareResults.forEach((cd, idx) => {
         if (!cd || !cd.params) return
@@ -524,8 +526,10 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       if (showScatter) {
         const thresholdPx = 12
         let near = false
-        const yMainPx = y(hdMain)
-        if (Math.abs(my - yMainPx) <= thresholdPx) near = true
+        if (!(compareItems?.length)) {
+          const yMainPx = y(hdMain)
+          if (Math.abs(my - yMainPx) <= thresholdPx) near = true
+        }
         if (!near) {
           for (const c of compHds) {
             const yPx = y(c.hd)
@@ -552,7 +556,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
   const params = data?.params
   const kpiRows = []
-  if (data?.params) {
+  if (data?.params && !(compareItems?.length)) {
     const years = `${filters.yearFrom}\u2013${filters.yearTo}`
     const mainLabelWithYears = `${mainLabel} · ${years}`
     kpiRows.push({ label: mainLabelWithYears, color: '#4ea1f3', params: data.params, kMax: data.kDomain?.[1] ?? 120 })
