@@ -38,7 +38,10 @@ export function postCurveFit(filters, opts = {}) {
 
 export function getProjectTimeseries(iatiidentifier, params = {}) {
   const qs = new URLSearchParams(params)
-  return request(`/api/projects/${encodeURIComponent(iatiidentifier)}/timeseries?${qs}`)
+  const query = qs.toString()
+  const base = `/api/projects/${encodeURIComponent(iatiidentifier)}/timeseries`
+  const path = query ? `${base}?${query}` : base
+  return request(path)
 }
 
 export function getPredictionBands(projectId, params = {}) {
