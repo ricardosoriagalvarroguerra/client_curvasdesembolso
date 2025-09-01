@@ -19,6 +19,9 @@ export default function App() {
   const [showActivePoints, setShowActivePoints] = useState(true)
   const [showPointCloud, setShowPointCloud] = useState(false)
 
+  const filtersEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+  const hideMainCurve = compareItems.some(ci => filtersEqual(ci.filters, filters))
+
   function addCurrentAsCompare(filtersArg) {
     if (compareItems.length >= 7) return
     // Accept either raw filters or { filters, label }
@@ -141,6 +144,7 @@ export default function App() {
               compareItems={compareItems}
               showActivePoints={showActivePoints}
               showPointCloud={showPointCloud}
+              hideMainCurve={hideMainCurve}
             />
           </Suspense>
         </main>

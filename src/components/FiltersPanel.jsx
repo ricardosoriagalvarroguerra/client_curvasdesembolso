@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { getFilters } from '../api/client'
 
+const FIVE_FP = ['AR', 'BO', 'BR', 'PY', 'UY']
+
 export default function FiltersPanel({ filters, onChange, onAddCompare, canAdd, onClearCompare, compareItems, onRemoveCompare, showActivePoints, onToggleActivePoints, showPointCloud, onTogglePointCloud, onCombine }) {
   const { data, error } = useSWR('/api/filters', getFilters, {
     revalidateOnFocus: false,
@@ -56,10 +58,11 @@ export default function FiltersPanel({ filters, onChange, onAddCompare, canAdd, 
     if (typeof onToggleActivePoints === 'function') onToggleActivePoints(true)
   }
 
+  const isFiveFP = FIVE_FP.every(c => local.countries.includes(c)) && local.countries.length === FIVE_FP.length
   const summary = [
     local.macrosectors.length===1 ? `Macrosector: ${data.macrosectors.find(m=>m.id===local.macrosectors[0])?.name}` : 'Macrosector: Global',
     local.modalities.length===1 ? `Modalidad: ${data.modalities.find(m=>m.id===local.modalities[0])?.name}` : 'Modalidad: Global',
-    local.countries.length===1 ? `País: ${local.countries[0]}` : 'País: Global',
+    isFiveFP ? 'País: 5-FP' : (local.countries.length===1 ? `País: ${local.countries[0]}` : 'País: Global'),
     (local.mdbs?.length===1 ? `MDB: ${data.mdbs.find(m=>m.id===local.mdbs[0])?.name || local.mdbs[0]}` : 'MDB: Global'),
   ]
 
@@ -94,14 +97,22 @@ export default function FiltersPanel({ filters, onChange, onAddCompare, canAdd, 
 
       <div className="field">
         <label className="hint">País</label>
-        <select className="select" value={local.countries[0] || ''} onChange={e => {
-          const v = e.target.value
-          setLocal(prev => ({ ...prev, countries: v ? [v] : [] }))
-        }}>
+        <select
+          className="select"
+          value={isFiveFP ? '5-FP' : (local.countries[0] || '')}
+          onChange={e => {
+            const v = e.target.value
+            setLocal(prev => ({
+              ...prev,
+              countries: v === '' ? [] : (v === '5-FP' ? [...FIVE_FP] : [v]),
+            }))
+          }}
+        >
           <option value="">Global (Todos)</option>
           {data.countries.map(c => (
             <option key={c} value={c}>{c}</option>
           ))}
+          <option value="5-FP">5-FP</option>
         </select>
       </div>
 
