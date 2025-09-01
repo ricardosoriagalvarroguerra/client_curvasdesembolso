@@ -222,10 +222,23 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-opacity', 0.9)
       .attr('stroke-width', 1)
 
-    // Historical quantile bands
+    // Historical quantile bands and main curve
     const dataBands = normalizeBands(data?.bands || [])
     const predBands = showBands ? normalizeBands(pred?.bands || []) : []
     const bands = showBands ? (predBands.length ? predBands : dataBands) : []
+    const params = data?.params
+
+    // Determine main curve independent of prediction bands
+    let curve = []
+    if (dataBands.length) {
+      curve = dataBands.map(d => ({ k: d.k, d: d.p50 }))
+    } else if (params) {
+      const { b0, b1, b2 } = params
+      const logistic3 = k => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
+      const kMaxLocal = data.kDomain?.[1] ?? 120
+      for (let k = 0; k <= kMaxLocal; k++) curve.push({ k, d: logistic3(k) })
+    }
+
     if (bands.length) {
       const area95 = d3.area()
         .defined(d => isFinite(d.p2_5) && isFinite(d.p97_5))
@@ -250,47 +263,19 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('fill-opacity', 0.15)
         .attr('stroke', 'none')
         .attr('d', area80)
-
-      const medLine = d3.line()
-        .defined(d => isFinite(d.p50))
-        .x(d => x(d.k))
-        .y(d => y(d.p50))
-      g.append('path')
-        .datum(bands)
-        .attr('fill', 'none')
-        .attr('stroke', 'var(--line-main)')
-        .attr('stroke-width', 2)
-        .attr('d', medLine)
     }
 
-    // Median line when bands hidden but available
-    if (!bands.length && dataBands.length) {
-      const medLine = d3.line()
-        .defined(d => isFinite(d.p50))
+    if (curve.length) {
+      const mainLine = d3.line()
+        .defined(d => isFinite(d.d))
         .x(d => x(d.k))
-        .y(d => y(d.p50))
-      g.append('path')
-        .datum(dataBands)
-        .attr('fill', 'none')
-        .attr('stroke', 'var(--line-main)')
-        .attr('stroke-width', 2)
-        .attr('d', medLine)
-    }
-
-    // Only the historical curve line for main filters when no bands available
-    const params = data?.params
-    if (!bands.length && !dataBands.length && params) {
-      const curve = []
-      const { b0, b1, b2 } = params
-      const logistic3 = (k) => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
-      const kMaxLocal = data.kDomain?.[1] ?? 120
-      for (let k = 0; k <= kMaxLocal; k++) curve.push({ k, hd: logistic3(k) })
+        .y(d => y(d.d))
       g.append('path')
         .datum(curve)
         .attr('fill', 'none')
         .attr('stroke', 'var(--line-main)')
         .attr('stroke-width', 2)
-        .attr('d', line)
+        .attr('d', mainLine)
     }
 
     // Additional comparison curves (up to 4)
