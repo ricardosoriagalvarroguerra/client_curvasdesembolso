@@ -7,13 +7,29 @@ import SeriesKPIs from './SeriesKPIs.jsx'
 import ProjectPopover from './ProjectPopover.jsx'
 
 // Normaliza un arreglo de puntos de bandas desde varias llaves posibles.
+// Acepta un array de objetos o un objeto de arrays (k[], p10[], etc.).
 function normalizeBands(raw = []) {
+  let arr = []
+  if (Array.isArray(raw)) {
+    arr = raw
+  } else if (raw && typeof raw === 'object') {
+    const keys = Object.keys(raw)
+    const len = Math.max(...keys.map(k => Array.isArray(raw[k]) ? raw[k].length : 0))
+    for (let i = 0; i < len; i++) {
+      const obj = {}
+      for (const k of keys) {
+        const val = Array.isArray(raw[k]) ? raw[k][i] : undefined
+        if (val !== undefined) obj[k] = val
+      }
+      arr.push(obj)
+    }
+  }
   const pick = (obj, keys) => {
     for (const k of keys) if (obj?.[k] != null) return obj[k]
     return undefined
   }
   // salida estandarizada con cuantiles conocidos y valores genéricos lower/upper
-  return raw
+  return arr
     .map((b) => {
       const k = Number(b.k ?? b.month ?? b.x ?? NaN)
       const toNum = v => (v == null ? undefined : Number(v))
@@ -230,8 +246,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-width', 1)
 
     // Historical quantile bands and main curve
-    const dataBands = normalizeBands(data?.bands || [])
-    const predBands = showBands ? normalizeBands(pred?.bands || []) : []
+    const dataBands = Array.isArray(data?.bands) ? normalizeBands(data.bands) : []
+    const predBands = showBands && Array.isArray(pred?.bands) ? normalizeBands(pred.bands) : []
     const bands = showBands ? predBands : []
     const params = data?.params
 
