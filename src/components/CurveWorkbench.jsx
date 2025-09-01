@@ -12,27 +12,21 @@ function normalizeBands(raw = []) {
     for (const k of keys) if (obj?.[k] != null) return obj[k]
     return undefined
   }
-  // salida estandarizada: { k, p2_5, p10, p50, p90, p97_5 }
+  // salida estandarizada con cuantiles conocidos y valores genéricos lower/upper
   return raw
     .map((b) => {
       const k = Number(b.k ?? b.month ?? b.x ?? NaN)
-      // cuantiles "reales" si existen
-      const p2_5  = pick(b, ["p2_5", "p_2_5", "p025"])
-      const p10   = pick(b, ["p10", "p_10"])
-      const p50   = pick(b, ["p50", "p_50", "median", "hd"])
-      const p90   = pick(b, ["p90", "p_90"])
-      const p97_5 = pick(b, ["p97_5","p_97_5","p975"])
-      // fallback a bandas fijas del fit si faltan cuantiles
-      const lower = pick(b, ["lower", "lower90", "lower95", "hd_dn"])
-      const upper = pick(b, ["upper", "upper90", "upper95", "hd_up"])
-      return {
-        k,
-        p2_5:  p2_5  ?? lower,
-        p10:   p10   ?? lower,
-        p50:   p50,                 // si no hay p50, hd se usó arriba
-        p90:   p90   ?? upper,
-        p97_5: p97_5 ?? upper
-      }
+      const toNum = v => (v == null ? undefined : Number(v))
+      const p2_5  = toNum(pick(b, ["p2_5", "p_2_5", "p025"]))
+      const p5    = toNum(pick(b, ["p5", "p_5"]))
+      const p10   = toNum(pick(b, ["p10", "p_10"]))
+      const p50   = toNum(pick(b, ["p50", "p_50", "median", "hd"]))
+      const p90   = toNum(pick(b, ["p90", "p_90"]))
+      const p95   = toNum(pick(b, ["p95", "p_95"]))
+      const p97_5 = toNum(pick(b, ["p97_5","p_97_5","p975"]))
+      const lower = toNum(pick(b, ["lower","lower80","lower90","lower95","hd_dn"]))
+      const upper = toNum(pick(b, ["upper","upper80","upper90","upper95","hd_up"]))
+      return { k, p2_5, p5, p10, p50, p90, p95, p97_5, lower, upper }
     })
     .filter(p => Number.isFinite(p.k)) // evita NaN en el eje X
     .sort((a,b) => a.k - b.k)
@@ -90,7 +84,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   )
 
   const { data: pred, error: predError, isValidating: loadingBands } = useSWR(
-    ['pred-bands', JSON.stringify({ ...stableFilters, method: bandMethod, level: bandLevel })],
+    ['pred-bands', JSON.stringify({ ...stableFilters, method: bandMethod, level: Number(bandLevel) })],
     ([, body], { signal } = {}) => getPredictionBands(JSON.parse(body), { signal }),
     { revalidateOnFocus: false, dedupingInterval: 300 }
   )
@@ -238,7 +232,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     // Historical quantile bands and main curve
     const dataBands = normalizeBands(data?.bands || [])
     const predBands = showBands ? normalizeBands(pred?.bands || []) : []
-    const bands = showBands ? (predBands.length ? predBands : dataBands) : []
+    const bands = showBands ? predBands : []
     const params = data?.params
 
     // Determine main curve independent of prediction bands
@@ -253,29 +247,35 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
 
     if (bands.length) {
-      const area95 = d3.area()
-        .defined(d => isFinite(d.p2_5) && isFinite(d.p97_5))
+      const [loKey, hiKey] = (() => {
+        switch (bandLevel) {
+          case '95': return ['p2_5', 'p97_5']
+          case '90': return ['p5', 'p95']
+          default:   return ['p10', 'p90']
+        }
+      })()
+      const area = d3.area()
+        .defined(d => {
+          const lo = d[loKey] ?? d.lower
+          const hi = d[hiKey] ?? d.upper
+          return isFinite(lo) && isFinite(hi)
+        })
         .x(d => x(d.k))
-        .y0(d => y(d.p2_5))
-        .y1(d => y(d.p97_5))
+        .y0(d => {
+          const lo = d[loKey] ?? d.lower
+          return y(lo)
+        })
+        .y1(d => {
+          const hi = d[hiKey] ?? d.upper
+          return y(hi)
+        })
+      const op = bandLevel === '95' ? 0.05 : bandLevel === '90' ? 0.1 : 0.15
       g.append('path')
         .datum(bands)
         .attr('fill', 'var(--line-main)')
-        .attr('fill-opacity', 0.05)
+        .attr('fill-opacity', op)
         .attr('stroke', 'none')
-        .attr('d', area95)
-
-      const area80 = d3.area()
-        .defined(d => isFinite(d.p10) && isFinite(d.p90))
-        .x(d => x(d.k))
-        .y0(d => y(d.p10))
-        .y1(d => y(d.p90))
-      g.append('path')
-        .datum(bands)
-        .attr('fill', 'var(--line-main)')
-        .attr('fill-opacity', 0.15)
-        .attr('stroke', 'none')
-        .attr('d', area80)
+        .attr('d', area)
     }
 
     if (curve.length) {
@@ -575,7 +575,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands])
+  }, [data, pred, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands, bandLevel])
 
   const params = data?.params
   const kpiRows = []
