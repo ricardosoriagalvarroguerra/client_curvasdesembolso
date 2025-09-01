@@ -4,9 +4,6 @@ WORKDIR /app
 COPY package*.json /app/
 RUN npm ci --no-audit --no-fund
 COPY . /app
-# Allow API base to be set at build time (Railway allows build envs)
-ARG VITE_API_BASE
-ENV VITE_API_BASE=${VITE_API_BASE}
 RUN npm run build
 
 # Serve static files with a lightweight server
