@@ -32,12 +32,26 @@ export default function App() {
     const computedLabel = mdb ? `${mdb} · ${base}` : base
     const yearsSuffix = `${f.yearFrom}\u2013${f.yearTo}`
     const defaultLabel = `${computedLabel} · ${yearsSuffix}`
+
+    // Deep-clone filters to freeze state at add time
+    const frozenFilters = {
+      macrosectors: [...(f.macrosectors || [])],
+      modalities: [...(f.modalities || [])],
+      countries: [...(f.countries || [])],
+      mdbs: [...(f.mdbs || [])],
+      ticketMin: f.ticketMin,
+      ticketMax: f.ticketMax,
+      yearFrom: f.yearFrom,
+      yearTo: f.yearTo,
+      onlyExited: f.onlyExited,
+    }
+
     const label = (filtersArg && filtersArg.label) ? filtersArg.label : defaultLabel
     const item = {
       id: Date.now().toString(),
       label,
       // Persist the filter state including the time interval at add time
-      filters: { ...f },
+      filters: frozenFilters,
     }
     setCompareItems(prev => [...prev, item])
   }
