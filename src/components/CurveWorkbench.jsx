@@ -1,10 +1,50 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import * as d3 from 'd3'
-import { postCurveFit, getProjectTimeseries } from '../api/client'
+import { postCurveFit, getProjectTimeseries, getPredictionBands } from '../api/client'
 import { MACROSECTOR_LABELS, MODALITY_LABELS } from '../labels'
 import SeriesKPIs from './SeriesKPIs.jsx'
 import ProjectPopover from './ProjectPopover.jsx'
+
+// Normaliza un arreglo de puntos de bandas desde varias llaves posibles.
+function normalizeBands(raw = []) {
+  const pick = (obj, keys) => {
+    for (const k of keys) if (obj?.[k] != null) return obj[k]
+    return undefined
+  }
+  // salida estandarizada: { k, p2_5, p10, p50, p90, p97_5 }
+  return raw
+    .map((b) => {
+      const k = Number(b.k ?? b.month ?? b.x ?? NaN)
+      // cuantiles "reales" si existen
+      const p2_5  = pick(b, ["p2_5", "p_2_5", "p025"])
+      const p10   = pick(b, ["p10", "p_10"])
+      const p50   = pick(b, ["p50", "p_50", "median", "hd"])
+      const p90   = pick(b, ["p90", "p_90"])
+      const p97_5 = pick(b, ["p97_5","p_97_5","p975"])
+      // fallback a bandas fijas del fit si faltan cuantiles
+      const lower = pick(b, ["lower", "lower90", "lower95", "hd_dn"])
+      const upper = pick(b, ["upper", "upper90", "upper95", "hd_up"])
+      return {
+        k,
+        p2_5:  p2_5  ?? lower,
+        p10:   p10   ?? lower,
+        p50:   p50,                 // si no hay p50, hd se usó arriba
+        p90:   p90   ?? upper,
+        p97_5: p97_5 ?? upper
+      }
+    })
+    .filter(p => Number.isFinite(p.k)) // evita NaN en el eje X
+    .sort((a,b) => a.k - b.k)
+}
+
+// Sanitiza series (curva principal) para evitar NaN en path SVG
+function sanitizeSeries(arr = [], xKey = "k", yKey = "d") {
+  return arr
+    .map(d => ({ k: Number(d[xKey]), d: Number(d[yKey]) }))
+    .filter(d => Number.isFinite(d.k) && Number.isFinite(d.d))
+    .sort((a,b) => a.k - b.k)
+}
 
 export default function CurveWorkbench({ filters, compareItems = [], showActivePoints = true, showPointCloud = false }) {
   const svgRef = useRef(null)
@@ -26,7 +66,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     if (cache.has(pid)) return cache.get(pid)
     try {
       const resp = await getProjectTimeseries(pid, { yearFrom: filters.yearFrom, yearTo: filters.yearTo })
-      const series = Array.isArray(resp?.series) ? resp.series.map(p => ({ k: p.k, d: p.d })) : []
+      const series = Array.isArray(resp?.series) ? sanitizeSeries(resp.series, 'k', 'd') : []
       const payload = { project: resp?.project, series }
       cache.set(pid, payload)
       return payload
@@ -48,6 +88,19 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     ([, body], { signal } = {}) => postCurveFit(JSON.parse(body), { signal }),
     { revalidateOnFocus: false, dedupingInterval: 300, keepPreviousData: true }
   )
+
+  const { data: pred, error: predError } = useSWR(
+    ['pred-bands', JSON.stringify({ ...stableFilters, method: bandMethod, level: bandLevel })],
+    ([, body], { signal } = {}) => getPredictionBands(JSON.parse(body), { signal }),
+    { revalidateOnFocus: false, dedupingInterval: 300 }
+  )
+
+  if (error) {
+    console.warn('Curve fit error:', error)
+  }
+  if (predError) {
+    console.warn('Prediction bands error:', predError)
+  }
 
   // Dynamic label for main series (prepend MDB prefix if selected)
   const mainLabel = useMemo(() => {
@@ -170,24 +223,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       .attr('stroke-width', 1)
 
     // Historical quantile bands
-    const rawBands = Array.isArray(data?.bands)
-      ? data.bands.map(b => {
-          const pick = (...keys) => {
-            for (const k of keys) if (b[k] != null) return b[k]
-            return undefined
-          }
-          return {
-            k: b.k,
-            p2_5: pick('p2_5', 'p_2_5', 'p025', 'p02_5', 'lower95', 'lower'),
-            p05: pick('p05', 'p_05', 'p5', 'lower90', 'lower'),
-            p10: pick('p10', 'p_10', 'lower80', 'q10'),
-            p50: pick('p50', 'p_50', 'median', 'q50'),
-            p90: pick('p90', 'p_90', 'upper80', 'q90'),
-            p95: pick('p95', 'p_95', 'upper90', 'upper'),
-            p97_5: pick('p97_5', 'p_97_5', 'p975', 'upper95', 'upper')
-          }
-        })
-      : []
+    const rawBands = normalizeBands(pred?.bands || data?.bands || [])
     const bands = showBands ? rawBands : []
     if (bands.length) {
       const area95 = d3.area()
@@ -201,18 +237,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         .attr('fill-opacity', 0.05)
         .attr('stroke', 'none')
         .attr('d', area95)
-
-      const area90 = d3.area()
-        .defined(d => isFinite(d.p05) && isFinite(d.p95))
-        .x(d => x(d.k))
-        .y0(d => y(d.p05))
-        .y1(d => y(d.p95))
-      g.append('path')
-        .datum(bands)
-        .attr('fill', 'var(--line-main)')
-        .attr('fill-opacity', 0.1)
-        .attr('stroke', 'none')
-        .attr('d', area90)
 
       const area80 = d3.area()
         .defined(d => isFinite(d.p10) && isFinite(d.p90))
@@ -606,8 +630,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   return (
     <div>
       {/* KPIs removed per request */}
-      {error && (
-        <div className="chip" style={{ color:'#ef4444' }}>{error?.message || 'Error'}</div>
+      {(error || predError) && (
+        <div className="chip" style={{ color:'#ef4444' }}>{error?.message || predError?.message || 'Error'}</div>
       )}
       <div className="summary" style={{ alignItems:'center' }}>
         <button className="chip" style={{ marginLeft: 0 }} onClick={() => setShowResidualsPanel(s => !s)}>
