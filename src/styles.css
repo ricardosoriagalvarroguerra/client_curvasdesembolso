@@ -61,7 +61,7 @@ body, html, #root { margin:0; padding:0; height:100%; background:var(--bg); colo
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 select.select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 18px) calc(1em + 2px), calc(100% - 12px) calc(1em + 2px); background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; padding-right: 26px; }
 .svg-wrap { width:100%; height:clamp(280px, 55vh, 520px); background:var(--input-bg); border:1px solid var(--border); border-radius:8px; }
-.tooltip { position:fixed; pointer-events:none; background:var(--input-bg); border:1px solid var(--border); padding:8px; border-radius:8px; font-size:12px; color:var(--text); box-shadow:0 10px 30px rgba(0,0,0,.5); }
+.tooltip { position:fixed; pointer-events:none; z-index:1000; background:var(--input-bg); border:1px solid var(--border); padding:8px; border-radius:8px; font-size:12px; color:var(--text); box-shadow:0 10px 30px rgba(0,0,0,.5); }
 .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; }
 .modal { background:#0e131b; border:1px solid var(--border); border-radius:12px; padding:12px; width:min(820px, 96vw); max-height:90vh; overflow:auto; box-shadow: 0 10px 30px rgba(0,0,0,.55); }
 .legend { display:flex; gap:10px; align-items:center; padding:6px 10px; }

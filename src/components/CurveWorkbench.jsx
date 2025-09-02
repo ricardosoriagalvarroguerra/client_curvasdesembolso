@@ -481,6 +481,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       t.style.padding = '8px'
       t.style.borderRadius = '6px'
       t.style.pointerEvents = 'none'
+      t.style.zIndex = 1000
       t.innerHTML = `<div style="font-weight:600;margin-bottom:4px">k=${Math.round(kVal)}</div>`+
         `<div style="color:var(--muted)">${(lo*100).toFixed(1)}% – ${(hi*100).toFixed(1)}%</div>`
     }
@@ -498,6 +499,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       t.style.padding = '8px'
       t.style.borderRadius = '6px'
       t.style.pointerEvents = 'none'
+      t.style.zIndex = 1000
 
       // Lightweight immediate info
       t.innerHTML = `<div style="font-weight:600;margin-bottom:4px">${point.iatiidentifier}</div>
@@ -707,6 +709,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       t.style.color = 'var(--text)'
       t.style.border = '1px solid var(--border)'
       t.style.background = 'var(--input-bg)'
+      t.style.zIndex = 1000
       t.innerHTML = `<div style=\"font-weight:600;color:var(--text);margin-bottom:4px\">Mes ${kVal}</div>` +
         rows.map(r => `<div style=\"color:var(--muted)\"><span style=\"display:inline-block;width:10px;height:6px;background:${r.color};margin-right:6px;vertical-align:middle;border-radius:2px\"></span>${r.label}: ${r.pctNum.toFixed(1)}%</div>`).join('')
     })
