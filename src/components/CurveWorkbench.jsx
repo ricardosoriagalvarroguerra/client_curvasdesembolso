@@ -43,13 +43,16 @@ function normalizeBands(raw = []) {
       p50:   toNum(pick(b, ["p50", "p_50", "median", "hd"])),
       p90:   toNum(pick(b, ["p90", "p_90"])),
       p97_5: toNum(pick(b, ["p97_5", "p_97_5", "p975"])),
+      p_low:  toNum(pick(b, ["p_low", "lower", "p10", "p_10", "p2_5", "p_2_5"])),
+      p_high: toNum(pick(b, ["p_high", "upper", "p90", "p_90", "p97_5", "p_97_5"])),
+      n:      toNum(pick(b, ["n", "n_k", "count"])),
       low_sample_p80: toNum(pick(b, ["low_sample_p80"])),
       low_sample_p95: toNum(pick(b, ["low_sample_p95"]))
     }))
     .filter(p => Number.isFinite(p.k))
     .sort((a,b) => a.k - b.k)
 
-  const out = { k:[], p2_5:[], p10:[], p50:[], p90:[], p97_5:[], low_sample_p80:[], low_sample_p95:[] }
+  const out = { k:[], p2_5:[], p10:[], p50:[], p90:[], p97_5:[], p_low:[], p_high:[], n:[], low_sample_p80:[], low_sample_p95:[] }
   for (const b of cleaned) {
     out.k.push(b.k)
     out.p2_5.push(b.p2_5)
@@ -57,16 +60,19 @@ function normalizeBands(raw = []) {
     out.p50.push(b.p50)
     out.p90.push(b.p90)
     out.p97_5.push(b.p97_5)
+    out.p_low.push(b.p_low)
+    out.p_high.push(b.p_high)
+    out.n.push(b.n)
     if (b.low_sample_p80 != null) out.low_sample_p80.push(b.low_sample_p80)
     if (b.low_sample_p95 != null) out.low_sample_p95.push(b.low_sample_p95)
   }
 
   // Validamos longitudes (recortamos al mínimo si difieren)
-  const lens = [out.k.length, out.p2_5.length, out.p10.length, out.p50.length, out.p90.length, out.p97_5.length]
+  const lens = [out.k.length, out.p2_5.length, out.p10.length, out.p50.length, out.p90.length, out.p97_5.length, out.p_low.length, out.p_high.length]
   const minLen = Math.min(...lens)
   if (!lens.every(l => l === minLen)) {
     console.warn('normalizeBands: longitudes inconsistentes', lens)
-    for (const k of ['k','p2_5','p10','p50','p90','p97_5','low_sample_p80','low_sample_p95']) {
+    for (const k of ['k','p2_5','p10','p50','p90','p97_5','p_low','p_high','n','low_sample_p80','low_sample_p95']) {
       if (Array.isArray(out[k])) out[k] = out[k].slice(0, minLen)
     }
   }
@@ -112,6 +118,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const [showBands, setShowBands] = useState(false)
   const [bandMethod, setBandMethod] = useState('historical_quantiles')
   const [bandLevel, setBandLevel] = useState('80')
+  const [bandMinN, setBandMinN] = useState('30')
+  const [bandSmooth, setBandSmooth] = useState(true)
 
   async function fetchSeries(pid) {
     const cache = tsCacheRef.current
@@ -159,7 +167,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   )
 
   const { data: pred, error: predError, isValidating: loadingBands } = useSWR(
-    hideMainCurve ? null : ['pred-bands', JSON.stringify({ ...stableFilters, method: bandMethod, level: Number(bandLevel) })],
+    hideMainCurve ? null : ['pred-bands', JSON.stringify({ ...stableFilters, method: bandMethod, level: Number(bandLevel), minN: Number(bandMinN), smooth: bandSmooth })],
     ([, body], { signal } = {}) => getPredictionBands(JSON.parse(body), { signal }),
     { revalidateOnFocus: false, dedupingInterval: 300 }
   )
@@ -186,7 +194,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         errorMessage = predError.status ? `${predError.status} ${predError.message}` : predError.message
       }
     } else if (!loadingBands && (!pred?.bands || !pred.bands.length)) {
-      errorMessage = 'Método no válido para esta combinación'
+      errorMessage = 'Sin datos suficientes para este cohorte y nivel'
     }
   }
 
@@ -246,19 +254,25 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     const pb = qs.get('pb')
     setShowBands(pb === null ? false : pb === '1')
     const m = qs.get('pb_m')
-    setBandMethod(m === 'historical_quantiles' ? 'historical_quantiles' : 'historical_quantiles')
+    setBandMethod(m === 'logistic_pi' ? 'logistic_pi' : 'historical_quantiles')
     setBandLevel(qs.get('pb_l') || '80')
+    const n = qs.get('pb_n')
+    if (n) setBandMinN(n)
+    const s = qs.get('pb_s')
+    setBandSmooth(s === null ? true : s !== '0')
   }, [])
 
   // Persist band settings to query string
   useEffect(() => {
     const qs = new URLSearchParams(window.location.search)
     if (showBands) qs.set('pb', '1'); else qs.delete('pb')
-    qs.set('pb_m', 'historical_quantiles')
+    qs.set('pb_m', bandMethod)
     qs.set('pb_l', bandLevel)
+    qs.set('pb_n', bandMinN)
+    if (!bandSmooth) qs.set('pb_s', '0'); else qs.delete('pb_s')
     const newUrl = `${window.location.pathname}?${qs.toString()}${window.location.hash}`
     window.history.replaceState(null, '', newUrl)
-  }, [showBands, bandLevel])
+  }, [showBands, bandLevel, bandMethod, bandMinN, bandSmooth])
 
 
   // Sync showScatter with prop from sidebar and view mode
@@ -331,79 +345,42 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
 
     if (bands && bands.k.length) {
-      // Zipeamos a array de objetos para D3 y detectamos low sample
       const all = bands.k.map((k, i) => ({
         k,
-        p2_5: bands.p2_5[i],
-        p10: bands.p10[i],
+        p_low: bands.p_low[i],
         p50: bands.p50[i],
-        p90: bands.p90[i],
-        p97_5: bands.p97_5[i],
-        low_sample_p80: bands.low_sample_p80?.[i],
-        low_sample_p95: bands.low_sample_p95?.[i]
+        p_high: bands.p_high[i],
+        n: bands.n?.[i]
       }))
+      const area = d3.area()
+        .defined(d => isFinite(d.p_low) && isFinite(d.p_high) && d.p_high - d.p_low >= 0)
+        .x(d => x(d.k))
+        .y0(d => y(d.p_low))
+        .y1(d => y(d.p_high))
+      g.append('path')
+        .datum(all)
+        .attr('fill', 'var(--band-fill)')
+        .attr('fill-opacity', 0.15)
+        .attr('stroke', 'none')
+        .attr('d', area)
 
-      const has = key => all.some(b => Number.isFinite(b[key]))
-      let loKey, hiKey
-      if (bandMethod === 'historical_quantiles') {
-        if (bandLevel === '95' && has('p2_5') && has('p97_5')) { loKey = 'p2_5'; hiKey = 'p97_5' }
-        else { loKey = 'p10'; hiKey = 'p90' }
-      } else {
-        if (bandLevel === '95' && has('p2_5') && has('p97_5')) { loKey = 'p2_5'; hiKey = 'p97_5' }
-        else if (bandLevel === '80' && has('p10') && has('p90')) { loKey = 'p10'; hiKey = 'p90' }
-        else if (has('lower') && has('upper')) { loKey = 'lower'; hiKey = 'upper' }
-        else if (has('p10') && has('p90')) { loKey = 'p10'; hiKey = 'p90' }
-        else if (has('p2_5') && has('p97_5')) { loKey = 'p2_5'; hiKey = 'p97_5' }
-      }
-
-      if (loKey && hiKey) {
-        const baseArea = d3.area()
-          .defined(d => isFinite(d[loKey]) && isFinite(d[hiKey]) && d[hiKey] - d[loKey] >= 0 && !((bandLevel === '95' ? d.low_sample_p95 : d.low_sample_p80)))
-          .x(d => x(d.k))
-          .y0(d => y(d[loKey]))
-          .y1(d => y(d[hiKey]))
-        const lowArea = d3.area()
-          .defined(d => isFinite(d[loKey]) && isFinite(d[hiKey]) && d[hiKey] - d[loKey] >= 0 && !!(bandLevel === '95' ? d.low_sample_p95 : d.low_sample_p80))
-          .x(d => x(d.k))
-          .y0(d => y(d[loKey]))
-          .y1(d => y(d[hiKey]))
-        const op = bandLevel === '95' ? 0.07 : 0.15
-        g.append('path')
-          .datum(all)
-          .attr('fill', 'var(--band-fill)')
-          .attr('fill-opacity', op)
-          .attr('stroke', 'none')
-          .attr('d', baseArea)
-        if (all.some(d => (bandLevel === '95' ? d.low_sample_p95 : d.low_sample_p80))) {
-          g.append('path')
-            .datum(all)
-            .attr('fill', 'var(--band-fill)')
-            .attr('fill-opacity', op * 0.4)
-            .attr('stroke', 'none')
-            .attr('d', lowArea)
-        }
-
-        // tooltip overlay for bands
-        const bisect = d3.bisector(d => d.k).left
-        g.append('rect')
-          .attr('fill', 'none')
-          .attr('pointer-events', 'all')
-          .attr('width', innerW)
-          .attr('height', innerH)
-          .on('mousemove', function (e) {
-            e.stopPropagation()
-            if (hoveringPointRef.current) return
-            const [mx] = d3.pointer(e)
-            const kVal = x.invert(mx)
-            const idx = Math.min(all.length - 1, Math.max(0, bisect(all, kVal)))
-            const d = all[idx]
-            const lo = d[loKey]
-            const hi = d[hiKey]
-            if (!isFinite(lo) || !isFinite(hi)) { hideTooltip(); return }
-            showBandTooltip(e, d.k, lo, hi)
-          })
-          .on('mouseleave', function (e) { e.stopPropagation(); hideTooltip() })
-      }
+      const bisect = d3.bisector(d => d.k).left
+      g.append('rect')
+        .attr('fill', 'none')
+        .attr('pointer-events', 'all')
+        .attr('width', innerW)
+        .attr('height', innerH)
+        .on('mousemove', function (e) {
+          e.stopPropagation()
+          if (hoveringPointRef.current) return
+          const [mx] = d3.pointer(e)
+          const kVal = x.invert(mx)
+          const idx = Math.min(all.length - 1, Math.max(0, bisect(all, kVal)))
+          const d = all[idx]
+          if (!isFinite(d.p_low) || !isFinite(d.p_high)) { hideTooltip(); return }
+          showBandTooltip(e, d)
+        })
+        .on('mouseleave', function (e) { e.stopPropagation(); hideTooltip() })
     }
 
     if (curve.length) {
@@ -474,9 +451,16 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 </svg>`
     }
 
-    function showBandTooltip(e, kVal, lo, hi) {
+    function showBandTooltip(e, d) {
       const t = tooltipRef.current
       if (!t) return
+      const methodLabel = bandMethod === 'logistic_pi' ? 'Logistic (PI)' : 'Historical (cohort)'
+      const paramsStr = (() => {
+        const mp = pred?.meta?.params
+        if (!mp) return ''
+        const fmt = v => (typeof v === 'number' && isFinite(v) ? v.toFixed(3) : '—')
+        return `<div style="color:var(--muted)">b0=${fmt(mp.b0)}, b1=${fmt(mp.b1)}, b2=${fmt(mp.b2)}, σ=${fmt(mp.sigma)}</div>`
+      })()
       t.style.display = 'block'
       t.style.left = (e.clientX + 12) + 'px'
       t.style.top = (e.clientY + 12) + 'px'
@@ -487,8 +471,10 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       t.style.borderRadius = '6px'
       t.style.pointerEvents = 'none'
       t.style.zIndex = 1000
-      t.innerHTML = `<div style="font-weight:600;margin-bottom:4px">k=${Math.round(kVal)}</div>`+
-        `<div style="color:var(--muted)">${(lo*100).toFixed(1)}% – ${(hi*100).toFixed(1)}%</div>`
+      t.innerHTML = `<div style="font-weight:600;margin-bottom:4px">k=${Math.round(d.k)}</div>` +
+        `<div style="color:var(--muted)">${(d.p_low*100).toFixed(1)}% – ${(d.p50*100).toFixed(1)}% – ${(d.p_high*100).toFixed(1)}%</div>` +
+        `<div style="color:var(--muted)">n=${d.n ?? '—'} · ${methodLabel}</div>` +
+        paramsStr
     }
 
     function showPointTooltip(e, point, color) {
@@ -773,6 +759,11 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
   }, [data?.points])
 
+  const baselineWarning = pred?.meta?.baseline_expected && pred.meta?.baseline_used && pred.meta.baseline_used !== pred.meta.baseline_expected
+    ? `Muestra insuficiente: se usó baseline ${pred.meta.baseline_used}. Interpretar con cautela.`
+    : null
+  const reliabilityMessage = pred?.meta?.warning || (pred?.meta?.reliability === 'low' ? 'Fiabilidad baja' : null)
+
   return (
     <div>
       {/* KPIs removed per request */}
@@ -789,16 +780,24 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         {showBands && (
           <>
             <select value={bandMethod} onChange={e => setBandMethod(e.target.value)} style={{ marginLeft: 8 }}>
-              <option value="historical_quantiles">historical_quantiles</option>
-              <option value="rolling_std" disabled>rolling_std</option>
-              <option value="bootstrap" disabled>bootstrap</option>
-              <option value="quantile_reg" disabled>quantile_reg</option>
+              <option value="historical_quantiles">Historical (cohort)</option>
+              <option value="logistic_pi">Logistic (PI)</option>
             </select>
             <select value={bandLevel} onChange={e => setBandLevel(e.target.value)} style={{ marginLeft: 8 }}>
               <option value="80">80%</option>
+              <option value="90">90%</option>
               <option value="95">95%</option>
             </select>
+            <input type="number" value={bandMinN} onChange={e => setBandMinN(e.target.value)} style={{ width:60, marginLeft:8 }} title="minN" />
+            <label style={{ marginLeft:8 }}>
+              <input type="checkbox" checked={bandSmooth} onChange={e => setBandSmooth(e.target.checked)} /> Suavizar
+            </label>
           </>
+        )}
+        {showBands && pred?.meta && (pred.meta.k_min != null && pred.meta.k_max != null) && (
+          <span className="chip" style={{ marginLeft: 8 }}>
+            Cobertura {pred.meta.k_min}–{pred.meta.k_max} (minN {pred.meta.minN ?? bandMinN})
+          </span>
         )}
         {(loadingMain || (showBands && loadingBands)) && (
           <span className="chip" style={{ marginLeft: 8 }}>Calculando...</span>
@@ -807,6 +806,14 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           {showMethodologyPanel ? 'Ocultar' : 'Ver'} ficha metodológica
         </button>
       </div>
+      {baselineWarning && (
+        <div className="chip" style={{ marginTop:8, color:'#b45309' }}>{baselineWarning}</div>
+      )}
+      {reliabilityMessage && (
+        <div style={{ background:'#fef9c3', color:'#92400e', padding:8, border:'1px solid #92400e', borderRadius:6, marginTop:8 }}>
+          {reliabilityMessage}
+        </div>
+      )}
       {serverError && (
         <div style={{ background:'#fee2e2', color:'#b91c1c', padding:8, border:'1px solid #b91c1c', borderRadius:6, marginTop:8 }}>
           {serverError}

@@ -65,11 +65,12 @@ export function getPredictionBands(params = {}, opts = {}) {
     iatiidentifier,                   // opcional
     method = 'historical_quantiles',  // método por defecto
     level = 80,
+    minN = 30,
     smooth = true,
     fromFirstDisbursement,
     ...filters
   } = params
-  const qs = new URLSearchParams({ method, level, smooth })
+  const qs = new URLSearchParams({ method, level, smooth, minN })
   if (iatiidentifier) qs.set('iatiidentifier', iatiidentifier)
   if (fromFirstDisbursement) qs.set('fromFirstDisbursement', 'true')
   for (const [k, v] of Object.entries(filters)) {
