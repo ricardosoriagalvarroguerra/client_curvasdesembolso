@@ -171,12 +171,16 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     console.warn('Prediction bands error:', predError)
   }
 
+  let serverError = null
   let errorMessage = null
   if (error) {
-    errorMessage = error.status ? `${error.status} ${error.message}` : error.message
+    if (error.status === 500) serverError = error.message
+    else errorMessage = error.status ? `${error.status} ${error.message}` : error.message
   } else if (showBands && !hideMainCurve) {
     if (predError) {
-      if (predError.status === 400 || predError.status === 422) {
+      if (predError.status === 500) {
+        serverError = predError.message
+      } else if (predError.status === 400 || predError.status === 422) {
         errorMessage = `${predError.status} Método no válido para esta combinación`
       } else {
         errorMessage = predError.status ? `${predError.status} ${predError.message}` : predError.message
@@ -241,7 +245,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     const qs = new URLSearchParams(window.location.search)
     const pb = qs.get('pb')
     setShowBands(pb === null ? false : pb === '1')
-    setBandMethod(qs.get('pb_m') || 'historical_quantiles')
+    const m = qs.get('pb_m')
+    setBandMethod(m === 'historical_quantiles' ? 'historical_quantiles' : 'historical_quantiles')
     setBandLevel(qs.get('pb_l') || '80')
   }, [])
 
@@ -249,11 +254,11 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   useEffect(() => {
     const qs = new URLSearchParams(window.location.search)
     if (showBands) qs.set('pb', '1'); else qs.delete('pb')
-    qs.set('pb_m', bandMethod)
+    qs.set('pb_m', 'historical_quantiles')
     qs.set('pb_l', bandLevel)
     const newUrl = `${window.location.pathname}?${qs.toString()}${window.location.hash}`
     window.history.replaceState(null, '', newUrl)
-  }, [showBands, bandMethod, bandLevel])
+  }, [showBands, bandLevel])
 
 
   // Sync showScatter with prop from sidebar and view mode
@@ -785,9 +790,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           <>
             <select value={bandMethod} onChange={e => setBandMethod(e.target.value)} style={{ marginLeft: 8 }}>
               <option value="historical_quantiles">historical_quantiles</option>
-              <option value="rolling_std">rolling_std</option>
-              <option value="bootstrap">bootstrap</option>
-              <option value="quantile_reg">quantile_reg</option>
+              <option value="rolling_std" disabled>rolling_std</option>
+              <option value="bootstrap" disabled>bootstrap</option>
+              <option value="quantile_reg" disabled>quantile_reg</option>
             </select>
             <select value={bandLevel} onChange={e => setBandLevel(e.target.value)} style={{ marginLeft: 8 }}>
               <option value="80">80%</option>
@@ -802,6 +807,11 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           {showMethodologyPanel ? 'Ocultar' : 'Ver'} ficha metodológica
         </button>
       </div>
+      {serverError && (
+        <div style={{ background:'#fee2e2', color:'#b91c1c', padding:8, border:'1px solid #b91c1c', borderRadius:6, marginTop:8 }}>
+          {serverError}
+        </div>
+      )}
       <svg ref={svgRef} className="svg-wrap" role="img" aria-label="Curva de desembolsos" />
       {showResidualsPanel && (
         <div className="grid-2-responsive" style={{ marginTop: 12, display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(280px, 1fr))', gap:12 }}>

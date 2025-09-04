@@ -8,25 +8,26 @@ async function request(path, options = {}) {
   const url = `${API_BASE}${path}`
   const isGet = !options.method || options.method.toUpperCase() === 'GET'
   const headers = isGet ? undefined : { 'Content-Type': 'application/json', ...(options.headers || {}) }
-  let res, text
+  let res
   try {
     res = await fetch(url, { headers, ...options })
-    text = await res.text()
   } catch (networkErr) {
     const err = new Error('Network request failed')
     err.cause = networkErr
     err.status = 0
     throw err
   }
-  let data
-  try { data = text ? JSON.parse(text) : null } catch (e) { data = text }
   if (!res.ok) {
-    const message = data?.detail || data?.message || res.statusText || 'Error'
-    const err = new Error(message)
+    let data = {}
+    try { data = await res.json() } catch {}
+    const msg = data?.detail || data?.message || res.statusText || `HTTP ${res.status}`
+    const err = new Error(msg)
     err.status = res.status
-    err.data = data
+    err.payload = data
     throw err
   }
+  let data
+  try { data = await res.json() } catch { data = await res.text() }
   return data
 }
 
