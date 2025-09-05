@@ -282,56 +282,68 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
     // Prediction bands
     if (showBands && params) {
-      let areaData = []
+      let band = []
       if (data?.bandsQuantile) {
         const bq = normalizeBands(data.bandsQuantile)
-        areaData = bq.k.map((k, i) => ({
+        band = bq.k.map((k, i) => ({
           k,
-          low: clamp01(bq.p_low[i]),
-          high: clamp01(bq.p_high[i])
-        }))
+          hd_dn: clamp01(bq.p_low[i]),
+          hd_up: clamp01(bq.p_high[i])
+        })).filter(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
       } else if (Array.isArray(data?.points)) {
         const pts = data.points
         const binW = Math.max(1, Math.round((data.kDomain?.[1] ?? 120) / 40))
-        const bins = new Map()
+        const byBin = new Map()
         for (const p of pts) {
           const bk = Math.floor(p.k / binW) * binW
-          const arr = bins.get(bk) || []
+          const arr = byBin.get(bk) || []
           if (Number.isFinite(p.y)) arr.push(p.y)
-          bins.set(bk, arr)
+          byBin.set(bk, arr)
         }
-        const qLow = (1 - bandCoverage) / 2
-        const qHigh = 1 - qLow
-        const binStats = new Map()
-        for (const [bk, arr] of bins.entries()) {
-          if (arr.length < 3) continue
-          arr.sort((a, b) => a - b)
-          const ql = d3.quantileSorted(arr, qLow)
-          const qh = d3.quantileSorted(arr, qHigh)
-          if (Number.isFinite(ql) && Number.isFinite(qh)) binStats.set(bk, [ql, qh])
-        }
+        const qLowP = (1 - bandCoverage) / 2
+        const qHiP = 1 - qLowP
+        const quantByBin = new Map()
+        byBin.forEach((arr, bk) => {
+          if (!arr || arr.length < 3) { quantByBin.set(bk, { ql: 0, qh: 0 }); return }
+          const sorted = arr.filter(Number.isFinite).slice().sort((a,b)=>a-b)
+          if (sorted.length < 3) { quantByBin.set(bk, { ql: 0, qh: 0 }); return }
+          const qlRaw = d3.quantileSorted(sorted, qLowP)
+          const qhRaw = d3.quantileSorted(sorted, qHiP)
+          const ql = Number.isFinite(qlRaw) ? Number(qlRaw) : 0
+          const qh = Number.isFinite(qhRaw) ? Number(qhRaw) : 0
+          quantByBin.set(bk, { ql, qh })
+        })
         const { b0, b1, b2 } = params
-        for (let k = 0; k <= KMAX; k++) {
+        const logistic3 = (k) => {
+          const nb0 = Number(b0), nb1 = Number(b1), nb2 = Number(b2)
+          const z = nb0 + nb1 * k + nb2 * k * k
+          const ez = Math.exp(-z)
+          const hd = 1 / (1 + ez)
+          return Number.isFinite(hd) ? hd : 0
+        }
+        const kUpper = data.kDomain?.[1] ?? 120
+        for (let k = 0; k <= kUpper; k++) {
           const bk = Math.floor(k / binW) * binW
-          const q = binStats.get(bk)
-          if (!q) { areaData.push({ k, low: null, high: null }); continue }
-          const hd = 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
-          const hd_dn = clamp01(hd + q[0])
-          const hd_up = clamp01(hd + q[1])
-          areaData.push({ k, low: hd_dn, high: hd_up })
+          const qs = quantByBin.get(bk) || { ql: 0, qh: 0 }
+          const hd = logistic3(k)
+          const ql = Number.isFinite(qs.ql) ? qs.ql : 0
+          const qh = Number.isFinite(qs.qh) ? qs.qh : 0
+          const up = Math.min(1, Math.max(0, hd + qh))
+          const dn = Math.max(0, Math.min(1, hd + ql))
+          if (Number.isFinite(up) && Number.isFinite(dn)) band.push({ k, hd_up: up, hd_dn: dn })
         }
       }
-      const hasData = areaData.some(d => d.low != null && d.high != null)
-      if (hasData) {
+      if (band.length) {
         const area = d3.area()
-          .defined(d => d.low != null && d.high != null)
+          .defined(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
           .x(d => x(d.k))
-          .y0(d => y(d.low))
-          .y1(d => y(d.high))
+          .y0(d => y(d.hd_dn))
+          .y1(d => y(d.hd_up))
         g.append('path')
-          .datum(areaData)
+          .datum(band)
           .attr('fill', 'var(--band-fill)')
           .attr('fill-opacity', 0.18)
+          .attr('stroke', 'none')
           .attr('d', area)
       }
     }
@@ -343,7 +355,13 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         curve = dataBands.k.map((k, i) => ({ k, d: dataBands.p50[i] }))
       } else if (params) {
         const { b0, b1, b2 } = params
-        const logistic3 = k => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
+        const logistic3 = (k) => {
+          const nb0 = Number(b0), nb1 = Number(b1), nb2 = Number(b2)
+          const z = nb0 + nb1 * k + nb2 * k * k
+          const ez = Math.exp(-z)
+          const hd = 1 / (1 + ez)
+          return Number.isFinite(hd) ? hd : 0
+        }
         const kMaxLocal = data.kDomain?.[1] ?? 120
         for (let k = 0; k <= kMaxLocal; k++) curve.push({ k, d: logistic3(k) })
       }
@@ -367,7 +385,13 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     compareList.forEach((cd, idx) => {
       if (!cd || !cd.params) return
       const { b0, b1, b2 } = cd.params
-      const logistic3 = (k) => 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
+      const logistic3 = (k) => {
+        const nb0 = Number(b0), nb1 = Number(b1), nb2 = Number(b2)
+        const z = nb0 + nb1 * k + nb2 * k * k
+        const ez = Math.exp(-z)
+        const hd = 1 / (1 + ez)
+        return Number.isFinite(hd) ? hd : 0
+      }
       const kMaxLocal = Math.min(cd.kDomain?.[1] ?? 120, KMAX)
       const curveC = []
       for (let k = 0; k <= kMaxLocal; k++) curveC.push({ k, hd: logistic3(k) })
@@ -649,7 +673,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, hideMainCurve, showBands, bandCoverage])
+  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands, bandCoverage])
 
   const params = hideMainCurve ? null : data?.params
   const kpiRows = []
