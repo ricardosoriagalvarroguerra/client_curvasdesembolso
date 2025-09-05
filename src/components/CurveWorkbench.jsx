@@ -223,12 +223,21 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           })).filter(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
         } else if (Array.isArray(src?.points)) {
           const pts = src.points
+          const { b0, b1, b2 } = params
+          const logistic3 = (k) => {
+            const nb0 = Number(b0), nb1 = Number(b1), nb2 = Number(b2)
+            const z = nb0 + nb1 * k + nb2 * k * k
+            const ez = Math.exp(-z)
+            const hd = 1 / (1 + ez)
+            return Number.isFinite(hd) ? hd : 0
+          }
           const binW = Math.max(1, Math.round((src.kDomain?.[1] ?? 120) / 40))
           const byBin = new Map()
           for (const p of pts) {
             const bk = Math.floor(p.k / binW) * binW
             const arr = byBin.get(bk) || []
-            if (Number.isFinite(p.y)) arr.push(p.y)
+            const res = p.y - logistic3(p.k)
+            if (Number.isFinite(res)) arr.push(res)
             byBin.set(bk, arr)
           }
           const qLowP = (1 - bandCoverage) / 2
@@ -244,14 +253,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
             const qh = Number.isFinite(qhRaw) ? Number(qhRaw) : 0
             quantByBin.set(bk, { ql, qh })
           })
-          const { b0, b1, b2 } = params
-          const logistic3 = (k) => {
-            const nb0 = Number(b0), nb1 = Number(b1), nb2 = Number(b2)
-            const z = nb0 + nb1 * k + nb2 * k * k
-            const ez = Math.exp(-z)
-            const hd = 1 / (1 + ez)
-            return Number.isFinite(hd) ? hd : 0
-          }
           const kUpper = src.kDomain?.[1] ?? 120
           for (let k = 0; k <= kUpper; k++) {
             const bk = Math.floor(k / binW) * binW
@@ -259,8 +260,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
             const hd = logistic3(k)
             const ql = Number.isFinite(qs.ql) ? qs.ql : 0
             const qh = Number.isFinite(qs.qh) ? qs.qh : 0
-            const up = Math.min(1, Math.max(0, hd + qh))
-            const dn = Math.max(0, Math.min(1, hd + ql))
+            const up = clamp01(hd + qh)
+            const dn = clamp01(hd + ql)
             if (Number.isFinite(up) && Number.isFinite(dn)) band.push({ k, hd_up: up, hd_dn: dn })
           }
         }
