@@ -35,8 +35,8 @@ export function normalizeBands(raw = []) {
       p50:   toNum(pick(b, ["p50", "p_50", "median", "hd"])),
       p90:   toNum(pick(b, ["p90", "p_90"])),
       p97_5: toNum(pick(b, ["p97_5", "p_97_5", "p975"])),
-      p_low:  toNum(pick(b, ["p_low", "lower", "p10", "p_10", "p2_5", "p_2_5"])),
-      p_high: toNum(pick(b, ["p_high", "upper", "p90", "p_90", "p97_5", "p_97_5"])),
+      p_low:  toNum(pick(b, ["p_low", "pLow", "lower", "p10", "p_10", "p2_5", "p_2_5"])),
+      p_high: toNum(pick(b, ["p_high", "pHigh", "upper", "p90", "p_90", "p97_5", "p_97_5"])),
       n:      toNum(pick(b, ["n", "n_k", "count"])),
       low_sample_p80: toNum(pick(b, ["low_sample_p80"])),
       low_sample_p95: toNum(pick(b, ["low_sample_p95"]))
