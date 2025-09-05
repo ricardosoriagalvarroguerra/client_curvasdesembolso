@@ -196,16 +196,18 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     // Prediction bands
     const bandSources = []
     if (!hideMainCurve) {
-      if (showBands && !(data?.bandsQuantile || Array.isArray(data?.points))) {
-        console.warn('Band data requested but missing from main curve response')
-      }
-      bandSources.push({ params: data?.params, bandsQuantile: data?.bandsQuantile, points: data?.points, kDomain: data?.kDomain })
+      const src = { params: data?.params, kDomain: data?.kDomain }
+      if (data?.bandsQuantile) src.bandsQuantile = data.bandsQuantile
+      else if (Array.isArray(data?.points)) src.points = data.points
+      else if (showBands) console.warn('Band data requested but missing from main curve response')
+      bandSources.push(src)
     } else {
       compareList.forEach(cd => {
-        if (showBands && !(cd?.bandsQuantile || Array.isArray(cd?.points))) {
-          console.warn('Band data requested but missing from comparison response')
-        }
-        bandSources.push(cd)
+        const src = { params: cd?.params, kDomain: cd?.kDomain }
+        if (cd?.bandsQuantile) src.bandsQuantile = cd.bandsQuantile
+        else if (Array.isArray(cd?.points)) src.points = cd.points
+        else if (showBands) console.warn('Band data requested but missing from comparison response')
+        bandSources.push(src)
       })
     }
 
@@ -264,6 +266,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
             const dn = clamp01(hd + ql)
             if (Number.isFinite(up) && Number.isFinite(dn)) band.push({ k, hd_up: up, hd_dn: dn })
           }
+        } else {
+          console.warn('Band data requested but missing from curve source')
         }
         if (band.length) {
           const area = d3.area()
