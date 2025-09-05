@@ -12,6 +12,7 @@
   --accent-2:#ffbf00;      /* Amber */
   --accent-3:#7c4dff;      /* Violet */
   --line-main:#12b5ff;     /* Main curve */
+  --band-fill: var(--line-main);
   /* Residual classes */
   --above:#00d08a;         /* Green */
   --below:#ff5a5f;         /* Red */

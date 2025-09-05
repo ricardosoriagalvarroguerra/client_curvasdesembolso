@@ -110,6 +110,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const tsCacheRef = useRef(new Map())
   const hoveringPointRef = useRef(false)
   const [showScatter, setShowScatter] = useState(showActivePoints)
+  const [showBands, setShowBands] = useState(false)
+  const [bandCoverage, setBandCoverage] = useState(0.9)
   const [compareResults, setCompareResults] = useState([])
   const [showResidualsPanel, setShowResidualsPanel] = useState(false)
   const [showMethodologyPanel, setShowMethodologyPanel] = useState(false)
@@ -142,6 +144,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const stableFilters = useMemo(() => ({
     ...filters,
     fromFirstDisbursement: !!filters.fromFirstDisbursement,
+    bandCoverage,
   }), [
     filters.macrosectors,
     filters.modalities,
@@ -153,6 +156,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     filters.yearTo,
     filters.onlyExited,
     filters.fromFirstDisbursement,
+    bandCoverage,
   ])
   const { data, error, isValidating: loadingMain } = useSWR(
     ['curve', JSON.stringify(stableFilters)],
@@ -197,7 +201,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         const results = await Promise.all(
           (compareItems || []).map(ci => {
             // Preserve the year interval captured when the series was added.
-            const mergedFilters = { ...ci.filters }
+            const mergedFilters = { ...ci.filters, bandCoverage }
             return postCurveFit(mergedFilters)
           })
         )
@@ -209,7 +213,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
     if (compareItems?.length) load(); else setCompareResults([])
     return () => { alive = false }
-  }, [JSON.stringify(compareItems), filters.yearFrom, filters.yearTo])
+  }, [JSON.stringify(compareItems), filters.yearFrom, filters.yearTo, bandCoverage])
 
   // Create tooltip once
   useEffect(() => {
@@ -250,6 +254,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     const x = d3.scaleLinear().domain([0, KMAX]).range([0, innerW])
     const y = d3.scaleLinear().domain([0, 1]).range([innerH, 0])
     const line = d3.line().defined(d => isFinite(d.hd)).x(d => x(d.k)).y(d => y(d.hd))
+    const clamp01 = v => Math.max(0, Math.min(1, v))
 
     // Axes: show only y thresholds 30/50/80%
     const yThresholds = [0.3, 0.5, 0.8]
@@ -274,6 +279,62 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     // Historical quantile bands and main curve
     const dataBands = (!hideMainCurve && data?.bands) ? normalizeBands(data.bands) : null
     const params = hideMainCurve ? null : data?.params
+
+    // Prediction bands
+    if (showBands && params) {
+      let areaData = []
+      if (data?.bandsQuantile) {
+        const bq = normalizeBands(data.bandsQuantile)
+        areaData = bq.k.map((k, i) => ({
+          k,
+          low: clamp01(bq.p_low[i]),
+          high: clamp01(bq.p_high[i])
+        }))
+      } else if (Array.isArray(data?.points)) {
+        const pts = data.points
+        const binW = Math.max(1, Math.round((data.kDomain?.[1] ?? 120) / 40))
+        const bins = new Map()
+        for (const p of pts) {
+          const bk = Math.floor(p.k / binW) * binW
+          const arr = bins.get(bk) || []
+          if (Number.isFinite(p.y)) arr.push(p.y)
+          bins.set(bk, arr)
+        }
+        const qLow = (1 - bandCoverage) / 2
+        const qHigh = 1 - qLow
+        const binStats = new Map()
+        for (const [bk, arr] of bins.entries()) {
+          if (arr.length < 3) continue
+          arr.sort((a, b) => a - b)
+          const ql = d3.quantileSorted(arr, qLow)
+          const qh = d3.quantileSorted(arr, qHigh)
+          if (Number.isFinite(ql) && Number.isFinite(qh)) binStats.set(bk, [ql, qh])
+        }
+        const { b0, b1, b2 } = params
+        for (let k = 0; k <= KMAX; k++) {
+          const bk = Math.floor(k / binW) * binW
+          const q = binStats.get(bk)
+          if (!q) { areaData.push({ k, low: null, high: null }); continue }
+          const hd = 1 / (1 + Math.exp(-(b0 + b1 * k + b2 * k * k)))
+          const hd_dn = clamp01(hd + q[0])
+          const hd_up = clamp01(hd + q[1])
+          areaData.push({ k, low: hd_dn, high: hd_up })
+        }
+      }
+      const hasData = areaData.some(d => d.low != null && d.high != null)
+      if (hasData) {
+        const area = d3.area()
+          .defined(d => d.low != null && d.high != null)
+          .x(d => x(d.k))
+          .y0(d => y(d.low))
+          .y1(d => y(d.high))
+        g.append('path')
+          .datum(areaData)
+          .attr('fill', 'var(--band-fill)')
+          .attr('fill-opacity', 0.18)
+          .attr('d', area)
+      }
+    }
 
     // Determine main curve
     let curve = []
@@ -588,7 +649,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, hideMainCurve])
+  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, hideMainCurve, showBands, bandCoverage])
 
   const params = hideMainCurve ? null : data?.params
   const kpiRows = []
@@ -646,7 +707,35 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         <div className="chip" style={{ color:'#ef4444' }}>{errorMessage}</div>
       )}
         <div className="summary" style={{ alignItems:'center' }}>
-          <button className="chip" style={{ marginLeft: 0 }} onClick={() => setShowResidualsPanel(s => !s)}>
+          <button className="chip" style={{ marginLeft: 0 }} onClick={() => setShowBands(s => !s)}>
+            {showBands ? 'Ocultar' : 'Ver'} Bandas
+          </button>
+          {showBands && (
+            <>
+              <button
+                className="chip"
+                onClick={() => setBandCoverage(0.8)}
+                style={bandCoverage === 0.8 ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}}
+              >
+                80%
+              </button>
+              <button
+                className="chip"
+                onClick={() => setBandCoverage(0.9)}
+                style={bandCoverage === 0.9 ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}}
+              >
+                90%
+              </button>
+              <button
+                className="chip"
+                onClick={() => setBandCoverage(0.95)}
+                style={bandCoverage === 0.95 ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}}
+              >
+                95%
+              </button>
+            </>
+          )}
+          <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowResidualsPanel(s => !s)}>
             {showResidualsPanel ? 'Ocultar' : 'Ver'} distribución y varianza por grupos
           </button>
           {loadingMain && (
