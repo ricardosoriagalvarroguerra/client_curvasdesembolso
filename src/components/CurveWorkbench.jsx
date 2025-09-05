@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import * as d3 from 'd3'
-import { postCurveFit, getProjectTimeseries, getPredictionBands } from '../api/client'
+import { postCurveFit, getProjectTimeseries } from '../api/client'
 import { MACROSECTOR_LABELS, MODALITY_LABELS } from '../labels'
 import SeriesKPIs from './SeriesKPIs.jsx'
 import ProjectPopover from './ProjectPopover.jsx'
@@ -114,12 +114,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const [showResidualsPanel, setShowResidualsPanel] = useState(false)
   const [showMethodologyPanel, setShowMethodologyPanel] = useState(false)
   const [popover, setPopover] = useState({ open: false, data: null })
-  // Start with prediction bands hidden by default
-  const [showBands, setShowBands] = useState(false)
-  const [bandMethod, setBandMethod] = useState('historical_quantiles')
-  const [bandLevel, setBandLevel] = useState('80')
-  const [bandMinN, setBandMinN] = useState('30')
-  const [bandSmooth, setBandSmooth] = useState(true)
 
   async function fetchSeries(pid) {
     const cache = tsCacheRef.current
@@ -166,17 +160,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     { revalidateOnFocus: false, dedupingInterval: 300, keepPreviousData: true }
   )
 
-  const { data: pred, error: predError, isValidating: loadingBands } = useSWR(
-    hideMainCurve ? null : ['pred-bands', JSON.stringify({ ...stableFilters, method: bandMethod, level: Number(bandLevel), minN: Number(bandMinN), smooth: bandSmooth })],
-    ([, body], { signal } = {}) => getPredictionBands(JSON.parse(body), { signal }),
-    { revalidateOnFocus: false, dedupingInterval: 300 }
-  )
-
   if (error) {
     console.warn('Curve fit error:', error)
-  }
-  if (predError && !hideMainCurve) {
-    console.warn('Prediction bands error:', predError)
   }
 
   let serverError = null
@@ -184,18 +169,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   if (error) {
     if (error.status === 500) serverError = error.message
     else errorMessage = error.status ? `${error.status} ${error.message}` : error.message
-  } else if (showBands && !hideMainCurve) {
-    if (predError) {
-      if (predError.status === 500) {
-        serverError = predError.message
-      } else if (predError.status === 400 || predError.status === 422) {
-        errorMessage = `${predError.status} Método no válido para esta combinación`
-      } else {
-        errorMessage = predError.status ? `${predError.status} ${predError.message}` : predError.message
-      }
-    } else if (!loadingBands && (!pred?.bands || !pred.bands.length)) {
-      errorMessage = 'Sin datos suficientes para este cohorte y nivel'
-    }
   }
 
   // Dynamic label for main series (prepend MDB prefix if selected)
@@ -247,33 +220,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     tooltipRef.current = el
     return () => { el.remove() }
   }, [])
-
-  // Sync band settings with query params on mount
-  useEffect(() => {
-    const qs = new URLSearchParams(window.location.search)
-    const pb = qs.get('pb')
-    setShowBands(pb === null ? false : pb === '1')
-    const m = qs.get('pb_m')
-    setBandMethod(m === 'logistic_pi' ? 'logistic_pi' : 'historical_quantiles')
-    setBandLevel(qs.get('pb_l') || '80')
-    const n = qs.get('pb_n')
-    if (n) setBandMinN(n)
-    const s = qs.get('pb_s')
-    setBandSmooth(s === null ? true : s !== '0')
-  }, [])
-
-  // Persist band settings to query string
-  useEffect(() => {
-    const qs = new URLSearchParams(window.location.search)
-    if (showBands) qs.set('pb', '1'); else qs.delete('pb')
-    qs.set('pb_m', bandMethod)
-    qs.set('pb_l', bandLevel)
-    qs.set('pb_n', bandMinN)
-    if (!bandSmooth) qs.set('pb_s', '0'); else qs.delete('pb_s')
-    const newUrl = `${window.location.pathname}?${qs.toString()}${window.location.hash}`
-    window.history.replaceState(null, '', newUrl)
-  }, [showBands, bandLevel, bandMethod, bandMinN, bandSmooth])
-
 
   // Sync showScatter with prop from sidebar and view mode
   useEffect(() => {
@@ -327,11 +273,9 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
     // Historical quantile bands and main curve
     const dataBands = (!hideMainCurve && data?.bands) ? normalizeBands(data.bands) : null
-    const predBands = (!hideMainCurve && showBands && pred?.bands) ? normalizeBands(pred.bands) : null
-    const bands = (showBands && !hideMainCurve) ? predBands : null
     const params = hideMainCurve ? null : data?.params
 
-    // Determine main curve independent of prediction bands
+    // Determine main curve
     let curve = []
     if (!hideMainCurve) {
       if (dataBands && dataBands.k.length) {
@@ -342,45 +286,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         const kMaxLocal = data.kDomain?.[1] ?? 120
         for (let k = 0; k <= kMaxLocal; k++) curve.push({ k, d: logistic3(k) })
       }
-    }
-
-    if (bands && bands.k.length) {
-      const all = bands.k.map((k, i) => ({
-        k,
-        p_low: bands.p_low[i],
-        p50: bands.p50[i],
-        p_high: bands.p_high[i],
-        n: bands.n?.[i]
-      }))
-      const area = d3.area()
-        .defined(d => isFinite(d.p_low) && isFinite(d.p_high) && d.p_high - d.p_low >= 0)
-        .x(d => x(d.k))
-        .y0(d => y(d.p_low))
-        .y1(d => y(d.p_high))
-      g.append('path')
-        .datum(all)
-        .attr('fill', 'var(--band-fill)')
-        .attr('fill-opacity', 0.15)
-        .attr('stroke', 'none')
-        .attr('d', area)
-
-      const bisect = d3.bisector(d => d.k).left
-      g.append('rect')
-        .attr('fill', 'none')
-        .attr('pointer-events', 'all')
-        .attr('width', innerW)
-        .attr('height', innerH)
-        .on('mousemove', function (e) {
-          e.stopPropagation()
-          if (hoveringPointRef.current) return
-          const [mx] = d3.pointer(e)
-          const kVal = x.invert(mx)
-          const idx = Math.min(all.length - 1, Math.max(0, bisect(all, kVal)))
-          const d = all[idx]
-          if (!isFinite(d.p_low) || !isFinite(d.p_high)) { hideTooltip(); return }
-          showBandTooltip(e, d)
-        })
-        .on('mouseleave', function (e) { e.stopPropagation(); hideTooltip() })
     }
 
     if (curve.length) {
@@ -451,31 +356,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 </svg>`
     }
 
-    function showBandTooltip(e, d) {
-      const t = tooltipRef.current
-      if (!t) return
-      const methodLabel = bandMethod === 'logistic_pi' ? 'Logistic (PI)' : 'Historical (cohort)'
-      const paramsStr = (() => {
-        const mp = pred?.meta?.params
-        if (!mp) return ''
-        const fmt = v => (typeof v === 'number' && isFinite(v) ? v.toFixed(3) : '—')
-        return `<div style="color:var(--muted)">b0=${fmt(mp.b0)}, b1=${fmt(mp.b1)}, b2=${fmt(mp.b2)}, σ=${fmt(mp.sigma)}</div>`
-      })()
-      t.style.display = 'block'
-      t.style.left = (e.clientX + 12) + 'px'
-      t.style.top = (e.clientY + 12) + 'px'
-      t.style.color = 'var(--text)'
-      t.style.border = '1px solid var(--border)'
-      t.style.background = 'var(--input-bg)'
-      t.style.padding = '8px'
-      t.style.borderRadius = '6px'
-      t.style.pointerEvents = 'none'
-      t.style.zIndex = 1000
-      t.innerHTML = `<div style="font-weight:600;margin-bottom:4px">k=${Math.round(d.k)}</div>` +
-        `<div style="color:var(--muted)">${(d.p_low*100).toFixed(1)}% – ${(d.p50*100).toFixed(1)}% – ${(d.p_high*100).toFixed(1)}%</div>` +
-        `<div style="color:var(--muted)">n=${d.n ?? '—'} · ${methodLabel}</div>` +
-        paramsStr
-    }
 
     function showPointTooltip(e, point, color) {
       hoveringPointRef.current = true
@@ -708,7 +588,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, pred, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands, bandLevel, bandMethod, hideMainCurve])
+  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, hideMainCurve])
 
   const params = hideMainCurve ? null : data?.params
   const kpiRows = []
@@ -759,61 +639,23 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
   }, [data?.points])
 
-  const baselineWarning = pred?.meta?.baseline_expected && pred.meta?.baseline_used && pred.meta.baseline_used !== pred.meta.baseline_expected
-    ? `Muestra insuficiente: se usó baseline ${pred.meta.baseline_used}. Interpretar con cautela.`
-    : null
-  const reliabilityMessage = pred?.meta?.warning || (pred?.meta?.reliability === 'low' ? 'Fiabilidad baja' : null)
-
-  return (
-    <div>
+    return (
+      <div>
       {/* KPIs removed per request */}
       {errorMessage && (
         <div className="chip" style={{ color:'#ef4444' }}>{errorMessage}</div>
       )}
-      <div className="summary" style={{ alignItems:'center' }}>
-        <button className="chip" style={{ marginLeft: 0 }} onClick={() => setShowResidualsPanel(s => !s)}>
-          {showResidualsPanel ? 'Ocultar' : 'Ver'} distribución y varianza por grupos
-        </button>
-        <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowBands(s => !s)}>
-          {showBands ? 'Ocultar' : 'Ver'} bandas
-        </button>
-        {showBands && (
-          <>
-            <select value={bandMethod} onChange={e => setBandMethod(e.target.value)} style={{ marginLeft: 8 }}>
-              <option value="historical_quantiles">Historical (cohort)</option>
-              <option value="logistic_pi">Logistic (PI)</option>
-            </select>
-            <select value={bandLevel} onChange={e => setBandLevel(e.target.value)} style={{ marginLeft: 8 }}>
-              <option value="80">80%</option>
-              <option value="90">90%</option>
-              <option value="95">95%</option>
-            </select>
-            <input type="number" value={bandMinN} onChange={e => setBandMinN(e.target.value)} style={{ width:60, marginLeft:8 }} title="minN" />
-            <label style={{ marginLeft:8 }}>
-              <input type="checkbox" checked={bandSmooth} onChange={e => setBandSmooth(e.target.checked)} /> Suavizar
-            </label>
-          </>
-        )}
-        {showBands && pred?.meta && (pred.meta.k_min != null && pred.meta.k_max != null) && (
-          <span className="chip" style={{ marginLeft: 8 }}>
-            Cobertura {pred.meta.k_min}–{pred.meta.k_max} (minN {pred.meta.minN ?? bandMinN})
-          </span>
-        )}
-        {(loadingMain || (showBands && loadingBands)) && (
-          <span className="chip" style={{ marginLeft: 8 }}>Calculando...</span>
-        )}
-        <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowMethodologyPanel(s => !s)}>
-          {showMethodologyPanel ? 'Ocultar' : 'Ver'} ficha metodológica
-        </button>
-      </div>
-      {baselineWarning && (
-        <div className="chip" style={{ marginTop:8, color:'#b45309' }}>{baselineWarning}</div>
-      )}
-      {reliabilityMessage && (
-        <div style={{ background:'#fef9c3', color:'#92400e', padding:8, border:'1px solid #92400e', borderRadius:6, marginTop:8 }}>
-          {reliabilityMessage}
+        <div className="summary" style={{ alignItems:'center' }}>
+          <button className="chip" style={{ marginLeft: 0 }} onClick={() => setShowResidualsPanel(s => !s)}>
+            {showResidualsPanel ? 'Ocultar' : 'Ver'} distribución y varianza por grupos
+          </button>
+          {loadingMain && (
+            <span className="chip" style={{ marginLeft: 8 }}>Calculando...</span>
+          )}
+          <button className="chip" style={{ marginLeft: 8 }} onClick={() => setShowMethodologyPanel(s => !s)}>
+            {showMethodologyPanel ? 'Ocultar' : 'Ver'} ficha metodológica
+          </button>
         </div>
-      )}
       {serverError && (
         <div style={{ background:'#fee2e2', color:'#b91c1c', padding:8, border:'1px solid #b91c1c', borderRadius:6, marginTop:8 }}>
           {serverError}
@@ -912,7 +754,6 @@ function MethodologyCard({ params, kDomain }) {
         <li><strong>b0, b1, b2</strong>: parámetros del modelo logístico; b0 es el intercepto, b1 la pendiente y b2 la curvatura.</li>
         <li><strong>y</strong>: residual (d − hd(k)).</li>
         <li><strong>Var(y)</strong>: varianza muestral de residuales; <strong>σ</strong>=√Var(y).</li>
-        <li><strong>z</strong>: multiplicador para bandas (por defecto ≈1.2816, P10–P90).</li>
         <li><strong>k_p</strong>: mes en el que la curva alcanza o supera el porcentaje p.</li>
         <li><strong>n_obs</strong>, <strong>n_proj</strong>, <strong>n_pts</strong>: nº observaciones, proyectos y puntos, respectivamente.</li>
       </ul>
@@ -928,26 +769,19 @@ function MethodologyCard({ params, kDomain }) {
       <LatexBlock formula={String.raw`k_p = \min\{ k \in \mathbb{N}_0 : hd(k) \ge p \}`} />
       <div style={{ color:'var(--muted)' }}>Se reportan p ∈ {`{`}0.30, 0.50, 0.80{`}`}. {hasParams ? `k30=${fmt(params.k30,0)}m · k50=${fmt(params.k50,0)}m · k80=${fmt(params.k80,0)}m` : ''}</div>
 
-      <div style={{ margin:'8px 0', fontWeight:600 }}>4) Bandas de varianza</div>
-      <LatexBlock formula={String.raw`hd(k) \pm z\,\sigma`} />
-      <LatexBlock formula={String.raw`\sigma = \sqrt{\operatorname{Var}(y)}`}/>
-      {hasParams && (
-        <div style={{ color:'var(--muted)' }}>σ={fmt(params.sigma)} · z={fmt(params.band_z)}</div>
-      )}
-
-      <div style={{ margin:'8px 0', fontWeight:600 }}>5) Residuales y estadísticos</div>
+      <div style={{ margin:'8px 0', fontWeight:600 }}>4) Residuales y estadísticos</div>
       <LatexBlock formula={String.raw`y_i = d_i - hd(k_i)`} />
       <LatexBlock formula={String.raw`\operatorname{Var}(y) = \frac{1}{n-1} \sum_{i=1}^n (y_i - \bar y)^2`} />
       {hasParams && (
         <div style={{ color:'var(--muted)' }}>Var(y)={fmt(params.var_y)} · media(y)={fmt(params.mean_y)} · mediana(y)={fmt(params.median_y)}</div>
       )}
 
-      <div style={{ margin:'8px 0', fontWeight:600 }}>6) Dominio y elegibilidad</div>
+      <div style={{ margin:'8px 0', fontWeight:600 }}>5) Dominio y elegibilidad</div>
       <div>Dominio temporal: k ∈ [0, {kMax}] meses.</div>
       <LatexBlock formula={String.raw`n_{obs} \ge 30`} />
       <div style={{ color:'var(--muted)' }}>Prioridad de base: país (1 país, n<sub>proj</sub>≥40, n<sub>pts</sub>≥500), macrosector (n<sub>proj</sub>≥60, n<sub>pts</sub>≥800), o baseline global (Investment).</div>
 
-      <div style={{ margin:'8px 0', fontWeight:600 }}>7) Procedimiento de ajuste</div>
+      <div style={{ margin:'8px 0', fontWeight:600 }}>6) Procedimiento de ajuste</div>
       <ol style={{ marginTop:4, paddingLeft:18 }}>
         <li>Construcción de k y d por proyecto (k=meses desde aprobación):
           <LatexBlock formula={String.raw`d_t = \min\!\left(1, \frac{\sum_{s\le t} disb_s}{approved}\right)`} />
@@ -960,31 +794,16 @@ function MethodologyCard({ params, kDomain }) {
         <li>Intervalos de k<sub>p</sub> por bootstrap: percentiles (2.5, 97.5) de {`{`}k<sub>p</sub><sup>(b)</sup>{`}`}</li>
       </ol>
 
-      <div style={{ margin:'8px 0', fontWeight:600 }}>8) Interpretación</div>
+      <div style={{ margin:'8px 0', fontWeight:600 }}>7) Interpretación</div>
       <ul style={{ marginTop:0, paddingLeft:18 }}>
         <li>Curva más empinada ⇒ desembolsos más rápidos (k50 más bajo).</li>
-        <li>Bandas estrechas ⇒ menor dispersión (σ pequeña). Bandas anchas ⇒ mayor heterogeneidad.</li>
         <li>y&gt;0: por encima de lo esperado; y&lt;0: por debajo.</li>
       </ul>
-
-      <div style={{ margin:'8px 0', fontWeight:600 }}>9) Notas técnicas</div>
+      <div style={{ margin:'8px 0', fontWeight:600 }}>8) Notas técnicas</div>
       <ul style={{ marginTop:0, paddingLeft:18 }}>
-        <li>z por defecto ≈ 1.2816 (percentiles 10–90); configurable en servidor.</li>
         <li>Se limita hd a [0,1] y se aplica muestreo en visualización para datasets muy grandes.</li>
       </ul>
 
-      <div style={{ marginTop:10, color:'var(--muted)' }}>Interpretación</div>
-      <ul style={{ marginTop:4, paddingLeft:18 }}>
-        <li>Curva más empinada ⇒ desembolsos más rápidos (k50 más bajo).</li>
-        <li>Bandas estrechas ⇒ menor dispersión (σ pequeña). Bandas anchas ⇒ mayor incertidumbre/heterogeneidad.</li>
-        <li>Residuales positivos ⇒ casos por encima de lo esperado; negativos ⇒ por debajo.</li>
-      </ul>
-
-      <div style={{ marginTop:10, color:'var(--muted)' }}>Notas técnicas</div>
-      <ul style={{ marginTop:4, paddingLeft:18 }}>
-        <li>z por defecto ≈ 1.2816 (percentiles 10–90); configurable en el servidor.</li>
-        <li>Se limita hd a [0,1] y se aplica muestreo cuando hay demasiados puntos para visualización.</li>
-        </ul>
         </div>
   )
 }

@@ -57,32 +57,6 @@ export function getProjectTimeseries(iatiidentifier, params = {}) {
   const path = query ? `${base}?${query}` : base
   return request(path)
 }
-
-// Obtener bandas históricas por cuantiles del portafolio filtrado.
-// Nota: iatiidentifier es OPCIONAL (si se envía, el backend lo excluye del cálculo).
-export function getPredictionBands(params = {}, opts = {}) {
-  const {
-    iatiidentifier,                   // opcional
-    method = 'historical_quantiles',  // método por defecto
-    level = 80,
-    minN = 30,
-    smooth = true,
-    fromFirstDisbursement,
-    ...filters
-  } = params
-  const qs = new URLSearchParams({ method, level, smooth, minN })
-  if (iatiidentifier) qs.set('iatiidentifier', iatiidentifier)
-  if (fromFirstDisbursement) qs.set('fromFirstDisbursement', 'true')
-  for (const [k, v] of Object.entries(filters)) {
-    if (Array.isArray(v)) v.forEach(val => qs.append(k, val))
-    else if (v !== undefined && v !== null) qs.append(k, v)
-  }
-  return request(`/api/curves/prediction-bands?${qs.toString()}`, {
-    method: 'GET',
-    ...opts,
-  })
-}
-
 export function getHealth() { return request('/api/health') }
 
 
