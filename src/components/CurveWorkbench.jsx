@@ -67,10 +67,19 @@ function normalizeBands(raw = []) {
     if (b.low_sample_p95 != null) out.low_sample_p95.push(b.low_sample_p95)
   }
 
-  // Validamos longitudes (recortamos al mínimo si difieren)
-  const lens = [out.k.length, out.p2_5.length, out.p10.length, out.p50.length, out.p90.length, out.p97_5.length, out.p_low.length, out.p_high.length]
-  const minLen = Math.min(...lens)
-  if (!lens.every(l => l === minLen)) {
+  // Validamos longitudes (recortamos al mínimo sólo entre series presentes)
+  const lens = [
+    out.k.length,
+    out.p_low.length,
+    out.p_high.length,
+    out.p2_5.length,
+    out.p10.length,
+    out.p50.length,
+    out.p90.length,
+    out.p97_5.length
+  ].filter(l => l > 0)
+  const minLen = lens.length ? Math.min(...lens) : 0
+  if (lens.length && !lens.every(l => l === minLen)) {
     console.warn('normalizeBands: longitudes inconsistentes', lens)
     for (const k of ['k','p2_5','p10','p50','p90','p97_5','p_low','p_high','n','low_sample_p80','low_sample_p95']) {
       if (Array.isArray(out[k])) out[k] = out[k].slice(0, minLen)
