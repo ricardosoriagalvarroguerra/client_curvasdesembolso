@@ -145,6 +145,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     ...filters,
     fromFirstDisbursement: !!filters.fromFirstDisbursement,
     bandCoverage,
+    includeBands: showBands,
   }), [
     filters.macrosectors,
     filters.modalities,
@@ -157,6 +158,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     filters.onlyExited,
     filters.fromFirstDisbursement,
     bandCoverage,
+    showBands,
   ])
   const { data, error, isValidating: loadingMain } = useSWR(
     ['curve', JSON.stringify(stableFilters)],
@@ -201,7 +203,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         const results = await Promise.all(
           (compareItems || []).map(ci => {
             // Preserve the year interval captured when the series was added.
-            const mergedFilters = { ...ci.filters, bandCoverage }
+            const mergedFilters = { ...ci.filters, bandCoverage, includeBands: showBands }
             return postCurveFit(mergedFilters)
           })
         )
@@ -213,7 +215,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
     if (compareItems?.length) load(); else setCompareResults([])
     return () => { alive = false }
-  }, [JSON.stringify(compareItems), filters.yearFrom, filters.yearTo, bandCoverage])
+  }, [JSON.stringify(compareItems), filters.yearFrom, filters.yearTo, bandCoverage, showBands])
 
   // Create tooltip once
   useEffect(() => {
@@ -284,9 +286,17 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     // Prediction bands
     const bandSources = []
     if (!hideMainCurve) {
+      if (showBands && !(data?.bandsQuantile || Array.isArray(data?.points))) {
+        console.warn('Band data requested but missing from main curve response')
+      }
       bandSources.push({ params: data?.params, bandsQuantile: data?.bandsQuantile, points: data?.points, kDomain: data?.kDomain })
     } else {
-      compareList.forEach(cd => bandSources.push(cd))
+      compareList.forEach(cd => {
+        if (showBands && !(cd?.bandsQuantile || Array.isArray(cd?.points))) {
+          console.warn('Band data requested but missing from comparison response')
+        }
+        bandSources.push(cd)
+      })
     }
 
     if (showBands) {
