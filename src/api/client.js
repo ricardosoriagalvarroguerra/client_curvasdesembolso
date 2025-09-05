@@ -36,14 +36,22 @@ export function getFilters() {
 }
 
 export function postCurveFit(filters, opts = {}) {
-  const { fromFirstDisbursement, ...rest } = filters
+  const { fromFirstDisbursement, bandCoverage, ...rest } = filters
+
+  // Only fromFirstDisbursement is encoded in the query string. The band
+  // coverage must travel in the JSON body so the backend can decide whether to
+  // compute prediction bands.
   const qs = new URLSearchParams()
   if (fromFirstDisbursement) qs.set('fromFirstDisbursement', 'true')
   const query = qs.toString()
   const path = query ? `/api/curves/fit?${query}` : '/api/curves/fit'
+
+  const payload = { ...rest }
+  if (bandCoverage !== undefined) payload.bandCoverage = bandCoverage
+
   return request(path, {
     method: 'POST',
-    body: JSON.stringify(rest),
+    body: JSON.stringify(payload),
     ...opts,
   })
 }
