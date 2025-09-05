@@ -255,6 +255,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     const y = d3.scaleLinear().domain([0, 1]).range([innerH, 0])
     const line = d3.line().defined(d => isFinite(d.hd)).x(d => x(d.k)).y(d => y(d.hd))
     const clamp01 = v => Math.max(0, Math.min(1, v))
+    const colors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', 'var(--series-6)', 'var(--series-7)']
 
     // Axes: show only y thresholds 30/50/80%
     const yThresholds = [0.3, 0.5, 0.8]
@@ -278,74 +279,86 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
     // Historical quantile bands and main curve
     const dataBands = (!hideMainCurve && data?.bands) ? normalizeBands(data.bands) : null
-    const params = hideMainCurve ? null : data?.params
+    const mainParams = !hideMainCurve ? data?.params : null
 
     // Prediction bands
-    if (showBands && params) {
-      let band = []
-      if (data?.bandsQuantile) {
-        const bq = normalizeBands(data.bandsQuantile)
-        band = bq.k.map((k, i) => ({
-          k,
-          hd_dn: clamp01(bq.p_low[i]),
-          hd_up: clamp01(bq.p_high[i])
-        })).filter(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
-      } else if (Array.isArray(data?.points)) {
-        const pts = data.points
-        const binW = Math.max(1, Math.round((data.kDomain?.[1] ?? 120) / 40))
-        const byBin = new Map()
-        for (const p of pts) {
-          const bk = Math.floor(p.k / binW) * binW
-          const arr = byBin.get(bk) || []
-          if (Number.isFinite(p.y)) arr.push(p.y)
-          byBin.set(bk, arr)
+    const bandSources = []
+    if (!hideMainCurve) {
+      bandSources.push({ params: data?.params, bandsQuantile: data?.bandsQuantile, points: data?.points, kDomain: data?.kDomain })
+    } else {
+      compareList.forEach(cd => bandSources.push(cd))
+    }
+
+    if (showBands) {
+      bandSources.forEach((src, idx) => {
+        const params = src?.params
+        if (!params) return
+        let band = []
+        if (src?.bandsQuantile) {
+          const bq = normalizeBands(src.bandsQuantile)
+          band = bq.k.map((k, i) => ({
+            k,
+            hd_dn: clamp01(bq.p_low[i]),
+            hd_up: clamp01(bq.p_high[i])
+          })).filter(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
+        } else if (Array.isArray(src?.points)) {
+          const pts = src.points
+          const binW = Math.max(1, Math.round((src.kDomain?.[1] ?? 120) / 40))
+          const byBin = new Map()
+          for (const p of pts) {
+            const bk = Math.floor(p.k / binW) * binW
+            const arr = byBin.get(bk) || []
+            if (Number.isFinite(p.y)) arr.push(p.y)
+            byBin.set(bk, arr)
+          }
+          const qLowP = (1 - bandCoverage) / 2
+          const qHiP = 1 - qLowP
+          const quantByBin = new Map()
+          byBin.forEach((arr, bk) => {
+            if (!arr || arr.length < 3) { quantByBin.set(bk, { ql: 0, qh: 0 }); return }
+            const sorted = arr.filter(Number.isFinite).slice().sort((a,b)=>a-b)
+            if (sorted.length < 3) { quantByBin.set(bk, { ql: 0, qh: 0 }); return }
+            const qlRaw = d3.quantileSorted(sorted, qLowP)
+            const qhRaw = d3.quantileSorted(sorted, qHiP)
+            const ql = Number.isFinite(qlRaw) ? Number(qlRaw) : 0
+            const qh = Number.isFinite(qhRaw) ? Number(qhRaw) : 0
+            quantByBin.set(bk, { ql, qh })
+          })
+          const { b0, b1, b2 } = params
+          const logistic3 = (k) => {
+            const nb0 = Number(b0), nb1 = Number(b1), nb2 = Number(b2)
+            const z = nb0 + nb1 * k + nb2 * k * k
+            const ez = Math.exp(-z)
+            const hd = 1 / (1 + ez)
+            return Number.isFinite(hd) ? hd : 0
+          }
+          const kUpper = src.kDomain?.[1] ?? 120
+          for (let k = 0; k <= kUpper; k++) {
+            const bk = Math.floor(k / binW) * binW
+            const qs = quantByBin.get(bk) || { ql: 0, qh: 0 }
+            const hd = logistic3(k)
+            const ql = Number.isFinite(qs.ql) ? qs.ql : 0
+            const qh = Number.isFinite(qs.qh) ? qs.qh : 0
+            const up = Math.min(1, Math.max(0, hd + qh))
+            const dn = Math.max(0, Math.min(1, hd + ql))
+            if (Number.isFinite(up) && Number.isFinite(dn)) band.push({ k, hd_up: up, hd_dn: dn })
+          }
         }
-        const qLowP = (1 - bandCoverage) / 2
-        const qHiP = 1 - qLowP
-        const quantByBin = new Map()
-        byBin.forEach((arr, bk) => {
-          if (!arr || arr.length < 3) { quantByBin.set(bk, { ql: 0, qh: 0 }); return }
-          const sorted = arr.filter(Number.isFinite).slice().sort((a,b)=>a-b)
-          if (sorted.length < 3) { quantByBin.set(bk, { ql: 0, qh: 0 }); return }
-          const qlRaw = d3.quantileSorted(sorted, qLowP)
-          const qhRaw = d3.quantileSorted(sorted, qHiP)
-          const ql = Number.isFinite(qlRaw) ? Number(qlRaw) : 0
-          const qh = Number.isFinite(qhRaw) ? Number(qhRaw) : 0
-          quantByBin.set(bk, { ql, qh })
-        })
-        const { b0, b1, b2 } = params
-        const logistic3 = (k) => {
-          const nb0 = Number(b0), nb1 = Number(b1), nb2 = Number(b2)
-          const z = nb0 + nb1 * k + nb2 * k * k
-          const ez = Math.exp(-z)
-          const hd = 1 / (1 + ez)
-          return Number.isFinite(hd) ? hd : 0
+        if (band.length) {
+          const area = d3.area()
+            .defined(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
+            .x(d => x(d.k))
+            .y0(d => y(d.hd_dn))
+            .y1(d => y(d.hd_up))
+          const fillColor = hideMainCurve ? colors[idx % colors.length] : 'var(--band-fill)'
+          g.append('path')
+            .datum(band)
+            .attr('fill', fillColor)
+            .attr('fill-opacity', 0.18)
+            .attr('stroke', 'none')
+            .attr('d', area)
         }
-        const kUpper = data.kDomain?.[1] ?? 120
-        for (let k = 0; k <= kUpper; k++) {
-          const bk = Math.floor(k / binW) * binW
-          const qs = quantByBin.get(bk) || { ql: 0, qh: 0 }
-          const hd = logistic3(k)
-          const ql = Number.isFinite(qs.ql) ? qs.ql : 0
-          const qh = Number.isFinite(qs.qh) ? qs.qh : 0
-          const up = Math.min(1, Math.max(0, hd + qh))
-          const dn = Math.max(0, Math.min(1, hd + ql))
-          if (Number.isFinite(up) && Number.isFinite(dn)) band.push({ k, hd_up: up, hd_dn: dn })
-        }
-      }
-      if (band.length) {
-        const area = d3.area()
-          .defined(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
-          .x(d => x(d.k))
-          .y0(d => y(d.hd_dn))
-          .y1(d => y(d.hd_up))
-        g.append('path')
-          .datum(band)
-          .attr('fill', 'var(--band-fill)')
-          .attr('fill-opacity', 0.18)
-          .attr('stroke', 'none')
-          .attr('d', area)
-      }
+      })
     }
 
     // Determine main curve
@@ -353,8 +366,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     if (!hideMainCurve) {
       if (dataBands && dataBands.k.length) {
         curve = dataBands.k.map((k, i) => ({ k, d: dataBands.p50[i] }))
-      } else if (params) {
-        const { b0, b1, b2 } = params
+      } else if (mainParams) {
+        const { b0, b1, b2 } = mainParams
         const logistic3 = (k) => {
           const nb0 = Number(b0), nb1 = Number(b1), nb2 = Number(b2)
           const z = nb0 + nb1 * k + nb2 * k * k
@@ -381,7 +394,6 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     }
 
     // Additional comparison curves (up to 4)
-    const colors = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', 'var(--series-6)', 'var(--series-7)']
     compareList.forEach((cd, idx) => {
       if (!cd || !cd.params) return
       const { b0, b1, b2 } = cd.params
@@ -611,20 +623,24 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     const svgSel = d3.select(svgEl)
     svgSel.on('mousemove', (e) => {
       if (hoveringPointRef.current) return
-      if (!params) return
+      const hasMain = !!mainParams
+      const hasCompare = compareResults.some(cd => cd?.params)
+      if (!hasMain && !hasCompare) return
       const t = tooltipRef.current
       if (!t) return
       const [mx, my] = d3.pointer(e, g.node())
       const kMaxLocal = KMAX
       const kVal = Math.max(0, Math.min(kMaxLocal, Math.round(x.invert(mx))))
 
-      // Compute hd and rows
-      const { b0, b1, b2 } = params
-      const hdMain = 1 / (1 + Math.exp(-(b0 + b1 * kVal + b2 * kVal * kVal)))
-      const colors = ['#ef4444', '#10b981', '#f59e0b', '#a78bfa', '#22d3ee', '#f472b6', '#34d399']
+      const colorsTip = ['#ef4444', '#10b981', '#f59e0b', '#a78bfa', '#22d3ee', '#f472b6', '#34d399']
       let rows = []
-      if (!hideMainCurve && !(compareItems?.length)) {
-        rows.push({ label: mainLabel, color: '#4ea1f3', pctNum: hdMain * 100 })
+      let hdMain = null
+      if (hasMain) {
+        const { b0, b1, b2 } = mainParams
+        hdMain = 1 / (1 + Math.exp(-(b0 + b1 * kVal + b2 * kVal * kVal)))
+        if (!hideMainCurve && !(compareItems?.length)) {
+          rows.push({ label: mainLabel, color: '#4ea1f3', pctNum: hdMain * 100 })
+        }
       }
       const compHds = []
       compareResults.forEach((cd, idx) => {
@@ -632,21 +648,18 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
         const { b0: cb0, b1: cb1, b2: cb2 } = cd.params
         const hd = 1 / (1 + Math.exp(-(cb0 + cb1 * kVal + cb2 * kVal * kVal)))
         compHds.push({ idx, hd })
-        // Use label already includes years, but also append years for clarity if missing
         const item = compareItems[idx]
         const years = item?.filters ? `${item.filters.yearFrom}\u2013${item.filters.yearTo}` : ''
         const label = (item?.label) ? item.label : `Curva ${idx+1}${years ? ' · ' + years : ''}`
-        rows.push({ label, color: colors[idx % colors.length], pctNum: hd * 100 })
+        rows.push({ label, color: colorsTip[idx % colorsTip.length], pctNum: hd * 100 })
       })
 
-      // Sort rows by percentage descending
       rows = rows.sort((a, b) => (b.pctNum - a.pctNum))
 
-      // If scatter visible, only show when near a curve path
       if (showScatter) {
         const thresholdPx = 12
         let near = false
-        if (!(compareItems?.length)) {
+        if (hasMain && !(compareItems?.length)) {
           const yMainPx = y(hdMain)
           if (Math.abs(my - yMainPx) <= thresholdPx) near = true
         }
@@ -673,9 +686,8 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands, bandCoverage])
+  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands, bandCoverage, hideMainCurve])
 
-  const params = hideMainCurve ? null : data?.params
   const kpiRows = []
   if (!hideMainCurve && data?.params && !(compareItems?.length)) {
     const years = `${filters.yearFrom}\u2013${filters.yearTo}`
