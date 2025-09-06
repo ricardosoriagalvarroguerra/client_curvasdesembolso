@@ -197,14 +197,16 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     const bandSources = []
     if (!hideMainCurve) {
       const src = { params: data?.params, kDomain: data?.kDomain }
-      if (data?.bandsQuantile) src.bandsQuantile = data.bandsQuantile
+      if (data?.bands) src.bands = data.bands
+      else if (data?.bandsQuantile) src.bandsQuantile = data.bandsQuantile
       else if (Array.isArray(data?.points)) src.points = data.points
       else if (showBands) console.warn('Band data requested but missing from main curve response')
       bandSources.push(src)
     } else {
       compareList.forEach(cd => {
         const src = { params: cd?.params, kDomain: cd?.kDomain }
-        if (cd?.bandsQuantile) src.bandsQuantile = cd.bandsQuantile
+        if (cd?.bands) src.bands = cd.bands
+        else if (cd?.bandsQuantile) src.bandsQuantile = cd.bandsQuantile
         else if (Array.isArray(cd?.points)) src.points = cd.points
         else if (showBands) console.warn('Band data requested but missing from comparison response')
         bandSources.push(src)
@@ -215,14 +217,52 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       bandSources.forEach((src, idx) => {
         const params = src?.params
         if (!params) return
-        let band = []
-        if (src?.bandsQuantile) {
-          const bq = normalizeBands(src.bandsQuantile)
-          band = bq.k.map((k, i) => ({
+        const area = d3.area()
+          .defined(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
+          .x(d => x(d.k))
+          .y0(d => y(d.hd_dn))
+          .y1(d => y(d.hd_up))
+        const fillColor = hideMainCurve ? colors[idx % colors.length] : null
+        if (src?.bands) {
+          const nb = normalizeBands(src.bands)
+          const band = nb.k.map((k, i) => ({
             k,
-            hd_dn: clamp01(bq.p_low[i]),
-            hd_up: clamp01(bq.p_high[i])
+            hd_dn: clamp01(nb.p_low[i]),
+            hd_up: clamp01(nb.p_high[i])
           })).filter(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
+          if (band.length) {
+            const p = g.append('path')
+              .datum(band)
+              .attr('class', 'band-area')
+              .attr('d', area)
+            if (fillColor) p.style('--band-fill', fillColor)
+          }
+        } else if (src?.bandsQuantile) {
+          const bq = normalizeBands(src.bandsQuantile)
+          const inner = []
+          const outer = []
+          bq.k.forEach((k, i) => {
+            const p10 = clamp01(bq.p10[i] ?? bq.p_low[i])
+            const p90 = clamp01(bq.p90[i] ?? bq.p_high[i])
+            const p2 = clamp01(bq.p2_5[i])
+            const p97 = clamp01(bq.p97_5[i])
+            if (Number.isFinite(p2) && Number.isFinite(p97)) outer.push({ k, hd_dn: p2, hd_up: p97 })
+            if (Number.isFinite(p10) && Number.isFinite(p90)) inner.push({ k, hd_dn: p10, hd_up: p90 })
+          })
+          if (outer.length) {
+            const pOuter = g.append('path')
+              .datum(outer)
+              .attr('class', 'band-area outer')
+              .attr('d', area)
+            if (fillColor) pOuter.style('--band-fill', fillColor)
+          }
+          if (inner.length) {
+            const pInner = g.append('path')
+              .datum(inner)
+              .attr('class', 'band-area')
+              .attr('d', area)
+            if (fillColor) pInner.style('--band-fill', fillColor)
+          }
         } else if (Array.isArray(src?.points)) {
           const pts = src.points
           const { b0, b1, b2 } = params
@@ -256,32 +296,26 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
             quantByBin.set(bk, { ql, qh })
           })
           const kUpper = src.kDomain?.[1] ?? 120
+          const band = []
           for (let k = 0; k <= kUpper; k++) {
             const bk = Math.floor(k / binW) * binW
             const qs = quantByBin.get(bk) || { ql: 0, qh: 0 }
             const hd = logistic3(k)
             const ql = Number.isFinite(qs.ql) ? qs.ql : 0
-            const qh = Number.isFinite(qs.qh) ? qs.qh : 0
+            const qh = Number.isFinite(qs.qh) ? Number(qs.qh) : 0
             const up = clamp01(hd + qh)
             const dn = clamp01(hd + ql)
             if (Number.isFinite(up) && Number.isFinite(dn)) band.push({ k, hd_up: up, hd_dn: dn })
           }
+          if (band.length) {
+            const p = g.append('path')
+              .datum(band)
+              .attr('class', 'band-area')
+              .attr('d', area)
+            if (fillColor) p.style('--band-fill', fillColor)
+          }
         } else {
           console.warn('Band data requested but missing from curve source')
-        }
-        if (band.length) {
-          const area = d3.area()
-            .defined(d => Number.isFinite(d.hd_dn) && Number.isFinite(d.hd_up))
-            .x(d => x(d.k))
-            .y0(d => y(d.hd_dn))
-            .y1(d => y(d.hd_up))
-          const fillColor = hideMainCurve ? colors[idx % colors.length] : 'var(--band-fill)'
-          g.append('path')
-            .datum(band)
-            .attr('fill', fillColor)
-            .attr('fill-opacity', 0.18)
-            .attr('stroke', 'none')
-            .attr('d', area)
         }
       })
     }

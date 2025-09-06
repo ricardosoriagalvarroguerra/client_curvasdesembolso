@@ -2,7 +2,7 @@
 // mediante su proxy y en producción el Nginx del contenedor reenvía las
 // solicitudes al backend. De esta forma evitamos llamadas "cross‑origin" que
 // disparaban errores de CORS cuando se configuraba un API base absoluto.
-const API_BASE = ''
+const API_BASE = (import.meta.env?.VITE_API_BASE ?? '').replace(/\/$/, '')
 
 async function request(path, options = {}) {
   const url = `${API_BASE}${path}`
@@ -66,5 +66,10 @@ export function getProjectTimeseries(iatiidentifier, params = {}) {
   return request(path)
 }
 export function getHealth() { return request('/api/health') }
+
+export function getPredictionBands(params = {}) {
+  const qs = new URLSearchParams(params)
+  return request(`/api/curves/prediction-bands?${qs}`)
+}
 
 
