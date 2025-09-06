@@ -35,8 +35,8 @@ export function normalizeBands(raw = []) {
       p50:   toNum(pick(b, ["p50", "p_50", "median", "hd"])),
       p90:   toNum(pick(b, ["p90", "p_90"])),
       p97_5: toNum(pick(b, ["p97_5", "p_97_5", "p975"])),
-      p_low:  toNum(pick(b, ["p_low", "pLow", "lower", "p10", "p_10", "p2_5", "p_2_5"])),
-      p_high: toNum(pick(b, ["p_high", "pHigh", "upper", "p90", "p_90", "p97_5", "p_97_5"])),
+      p_low:  toNum(pick(b, ["p_low", "pLow", "lower", "hd_dn", "p10", "p_10", "p2_5", "p_2_5"])),
+      p_high: toNum(pick(b, ["p_high", "pHigh", "upper", "hd_up", "p90", "p_90", "p97_5", "p_97_5"])),
       n:      toNum(pick(b, ["n", "n_k", "count"])),
       low_sample_p80: toNum(pick(b, ["low_sample_p80"])),
       low_sample_p95: toNum(pick(b, ["low_sample_p95"]))
@@ -91,6 +91,20 @@ export function normalizeBands(raw = []) {
         out[key][i] = v
       }
       prev = v
+    }
+
+    const med = out.p50[i]
+    const low = out.p_low[i]
+    const high = out.p_high[i]
+    if (isFinite(med)) {
+      if (isFinite(low) && low > med) {
+        console.warn('Low above median at k', out.k[i])
+        out.p_low[i] = med
+      }
+      if (isFinite(high) && high < med) {
+        console.warn('High below median at k', out.k[i])
+        out.p_high[i] = med
+      }
     }
   }
 

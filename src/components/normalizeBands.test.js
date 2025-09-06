@@ -29,3 +29,14 @@ test('normalizeBands accepts camelCase pLow/pHigh fields', () => {
   assert.deepStrictEqual(result.p_high, [0.3, 0.4])
 })
 
+test('normalizeBands maps hd_dn/hd_up to p_low/p_high', () => {
+  const raw = [
+    { k: 0, hd_dn: 0.0, hd_up: 0.1 },
+    { k: 1, hd_dn: 0.05, hd_up: 0.2 }
+  ]
+  const result = normalizeBands(raw)
+  assert.deepStrictEqual(result.p_low, [0, 0.05])
+  assert.deepStrictEqual(result.p_high, [0.1, 0.2])
+  assert.strictEqual(result.k.length, 2)
+})
+
