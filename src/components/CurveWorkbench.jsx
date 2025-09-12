@@ -527,6 +527,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
           .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
           .on('mouseleave', function () { clearHighlight(); hideTooltip() })
+          .on('mouseenter.prefetch', (e, d) => { fetchSeries(d.iatiidentifier) })
           .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
       }
       if (!hideMainCurve) drawCloud(data.points, '#6b7280')
@@ -555,6 +556,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, '#2563eb'); showPointTooltip(e, d, '#2563eb') })
           .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, '#2563eb'); showPointTooltip(e, d, '#2563eb') })
           .on('mouseleave', function () { clearHighlight(); hideTooltip() })
+          .on('mouseenter.prefetch', (e, d) => { fetchSeries(d.iatiidentifier) })
           .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
       }
       compareList.forEach((cd, idx) => {
@@ -577,6 +579,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           .on('mouseenter', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
           .on('mousemove', function (e, d) { e.stopPropagation(); highlightPid(d.iatiidentifier, color); showPointTooltip(e, d, color) })
           .on('mouseleave', function () { clearHighlight(); hideTooltip() })
+          .on('mouseenter.prefetch', (e, d) => { fetchSeries(d.iatiidentifier) })
           .on('click', function (e, d) { hideTooltip(); openProject(d.iatiidentifier) })
       })
     }
