@@ -109,6 +109,11 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
     return mdbPrefix ? `${mdbPrefix} · ${base}` : base
   }, [filters.macrosectors, filters.modalities, filters.countries, filters.mdbs])
 
+  const compareKey = useMemo(
+    () => (compareItems || []).map(ci => ci.id).join(','),
+    [compareItems]
+  )
+
   // Fetch comparison curves imperativamente (hasta 4) cuando cambian compareItems
   useEffect(() => {
     const controller = new AbortController()
@@ -133,7 +138,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       alive = false
       controller.abort()
     }
-  }, [JSON.stringify(compareItems), filters.yearFrom, filters.yearTo, bandCoverage, showBands])
+  }, [compareKey, filters.yearFrom, filters.yearTo, bandCoverage, showBands])
 
   // Create tooltip once
   useEffect(() => {
@@ -656,7 +661,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       const t = tooltipRef.current
       if (t) t.style.display = 'none'
     })
-  }, [data, compareResults, JSON.stringify(compareItems), showScatter, showPointCloud, showBands, bandCoverage, hideMainCurve])
+  }, [data, compareResults, compareKey, showScatter, showPointCloud, showBands, bandCoverage, hideMainCurve])
 
   const kpiRows = []
   if (!hideMainCurve && data?.params && !(compareItems?.length)) {
