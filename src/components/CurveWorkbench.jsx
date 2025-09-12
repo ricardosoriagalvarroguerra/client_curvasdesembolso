@@ -107,6 +107,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
 
   // Fetch comparison curves imperativamente (hasta 4) cuando cambian compareItems
   useEffect(() => {
+    const controller = new AbortController()
     let alive = true
     async function load() {
       try {
@@ -114,7 +115,7 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
           (compareItems || []).map(ci => {
             // Preserve the year interval captured when the series was added.
             const mergedFilters = { ...ci.filters, bandCoverage, includeBands: showBands }
-            return postCurveFit(mergedFilters)
+            return postCurveFit(mergedFilters, { signal: controller.signal })
           })
         )
         if (alive) setCompareResults(results)
@@ -124,7 +125,10 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
       }
     }
     if (compareItems?.length) load(); else setCompareResults([])
-    return () => { alive = false }
+    return () => {
+      alive = false
+      controller.abort()
+    }
   }, [JSON.stringify(compareItems), filters.yearFrom, filters.yearTo, bandCoverage, showBands])
 
   // Create tooltip once
