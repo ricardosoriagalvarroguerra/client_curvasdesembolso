@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import useSWR from 'swr'
+import useSWR, { mutate } from 'swr'
 import * as d3 from 'd3'
 import { postCurveFit, getProjectTimeseries } from '../api/client'
 import { MACROSECTOR_LABELS, MODALITY_LABELS } from '../labels'
@@ -17,7 +17,6 @@ function sanitizeSeries(arr = [], xKey = "k", yKey = "d") {
 export default function CurveWorkbench({ filters, compareItems = [], showActivePoints = true, showPointCloud = false, hideMainCurve = false }) {
   const svgRef = useRef(null)
   const tooltipRef = useRef(null)
-  const tsCacheRef = useRef(new Map())
   const hoveringPointRef = useRef(false)
   const [showScatter, setShowScatter] = useState(showActivePoints)
   const [showBands, setShowBands] = useState(false)
@@ -26,28 +25,33 @@ export default function CurveWorkbench({ filters, compareItems = [], showActiveP
   const [showResidualsPanel, setShowResidualsPanel] = useState(false)
   const [showMethodologyPanel, setShowMethodologyPanel] = useState(false)
   const [popover, setPopover] = useState({ open: false, data: null })
+  const [projectPid, setProjectPid] = useState(null)
 
-  async function fetchSeries(pid) {
-    const cache = tsCacheRef.current
-    const key = JSON.stringify({ pid, fromFirstDisbursement: !!filters.fromFirstDisbursement, yearFrom: filters.yearFrom, yearTo: filters.yearTo })
-    if (cache.has(key)) return cache.get(key)
+  const projectFetcher = async ([pid, fromFirst, yearFrom, yearTo]) => {
     try {
-      const params = { yearFrom: filters.yearFrom, yearTo: filters.yearTo }
-      if (filters.fromFirstDisbursement) params.fromFirstDisbursement = true
+      const params = { yearFrom, yearTo }
+      if (fromFirst) params.fromFirstDisbursement = true
       const resp = await getProjectTimeseries(pid, params)
       const series = Array.isArray(resp?.series) ? sanitizeSeries(resp.series, 'k', 'd') : []
-      const payload = { project: resp?.project, series }
-      cache.set(key, payload)
-      return payload
+      return { project: resp?.project, series }
     } catch {
-      const payload = { project: { iatiidentifier: pid }, series: [] }
-      cache.set(key, payload)
-      return payload
+      return { project: { iatiidentifier: pid }, series: [] }
     }
   }
 
+  const projectSWR = useSWR(
+    projectPid ? [projectPid, filters.fromFirstDisbursement, filters.yearFrom, filters.yearTo] : null,
+    projectFetcher,
+    { revalidateOnFocus: false }
+  )
+
   async function openProject(pid) {
-    const data = await fetchSeries(pid)
+    setProjectPid(pid)
+    const key = [pid, filters.fromFirstDisbursement, filters.yearFrom, filters.yearTo]
+    let data = projectSWR.data
+    if (!data || data.project?.iatiidentifier !== pid) {
+      data = await mutate(key, () => projectFetcher(key))
+    }
     setPopover({ open: true, data })
   }
 
